@@ -9,7 +9,7 @@
 
 set_up_uv: &set_up_uv 
   steps:
-      - run: echo "hello world" # run the `echo` command
+      - checkout
       - run:
           name: install uv
           command: curl -LsSf https://astral.sh/uv/0.4.8/install.sh | sh
@@ -28,8 +28,8 @@ jobs:
     <<: *set_up_uv
     docker:
       - image: cimg/python:3.10 # the primary container, where your job's commands are run
-    steps:
-      - run: uv --version # check out the code in the project directory
+    # steps:
+    #   - run: uv --version # check out the code in the project directory
 
 workflows:
   my-workflow:
