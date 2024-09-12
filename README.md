@@ -14,6 +14,9 @@ This project uses [uv](https://docs.astral.sh/uv/) for project and dependency ma
 
 Once the virtualenv is set up, a pipeline can be run locally with `uv run <PATH TO FLOW FILE> run`
 
+#### Running on local after setting up outerbounds
+When you set up outerbounds (see next section), a new metaflow config file is created.  This means you'll be using Outerbounds' perimeters for authentication by default from then on.  To use your local authentication, you want to make sure there is a file at `~/.metaflowconfig/config_local.json` that only has an empty json object in it (this might be created by default, if not you can create it yourself). You can then run with this local profile by doing: `METAFLOW_PROFILE=local uv run flows/ad_tiles_forecast.py run`.  See: (https://outerbounds.com/docs/use-multiple-metaflow-configs/)
+
 ### On Outerbounds
 [Outerbounds](https://ui.desertowl.obp.outerbounds.com/dashboard/workspace) is used to run metaflow flows in the cloud.  The code is run with a docker image via [kubernetes](https://outerbounds.com/engineering/deployment/gcp-k8s/deployment/).  Currently an image that works with uv and metaflow can be found [here](https://hub.docker.com/repository/docker/jsnydermoz/moz-forecasting/general)  (TODO: build and push image in CI, have it go to mozilla GCR rather than Jared's dockerhub). 
 
