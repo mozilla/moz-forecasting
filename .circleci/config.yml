@@ -36,15 +36,11 @@ jobs:
       - run: echo "hello world" # run the `echo` command
       - run:
           name: install uv
-          command: curl -LsSf https://astral.sh/uv/0.4.8/install.sh
-      - run:
-          name: update path
-          command: export PATH=".cargo/bin/:$PATH"
+          command: curl -LsSf https://astral.sh/uv/0.4.8/install.sh | sh
       - run: 
           name: set up env
           command: |
             uv sync --frozen
-            export PATH=".venv/bin:$PATH"
 
 workflows:
   my-workflow:
