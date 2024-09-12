@@ -1,3 +1,30 @@
+
+####################
+# CircleCI configuration reference:
+#   https://circleci.com/docs/2.0/configuration-reference
+####################
+# CircleCI built-in environment variables:
+#   https://circleci.com/docs/2.0/env-vars/#built-in-environment-variables
+####################
+
+set_up_uv: &set_up_uv 
+  steps:
+    - run:
+      name: install uv
+      command: |
+        curl -o uv-installer.sh https://astral.sh/uv/0.4.8/install.sh
+        uv-installer.sh
+    - run:
+      name: update path
+      command: export PATH=".cargo/bin/:$PATH"
+    - run: 
+      name: set up env
+      command: |
+        uv sync --frozen
+        export PATH=".venv/bin:$PATH"
+
+
+
 version: 2.1
 
 jobs:
@@ -6,7 +33,7 @@ jobs:
       - image: cimg/python:3.10 # the primary container, where your job's commands are run
     steps:
       - checkout # check out the code in the project directory
-      - run: echo "hello world" # run the `echo` command
+      - <<: *set_up_uv
 
 workflows:
   my-workflow:
