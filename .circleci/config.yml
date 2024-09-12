@@ -9,19 +9,15 @@
 
 set_up_uv: &set_up_uv 
   steps:
-    - run:
-      name: install uv
-      command: |
-        curl -o uv-installer.sh https://astral.sh/uv/0.4.8/install.sh
-        uv-installer.sh
-    - run:
-      name: update path
-      command: export PATH=".cargo/bin/:$PATH"
-    - run: 
-      name: set up env
-      command: |
-        uv sync --frozen
-        export PATH=".venv/bin:$PATH"
+      - run: echo "hello world" # run the `echo` command
+      - run:
+          name: install uv
+          command: curl -LsSf https://astral.sh/uv/0.4.8/install.sh | sh
+      - run: 
+          name: set up env
+          command: |
+            source $HOME/.cargo/env
+            uv sync --frozen
 
 
 
@@ -33,15 +29,9 @@ jobs:
       - image: cimg/python:3.10 # the primary container, where your job's commands are run
     steps:
       - checkout # check out the code in the project directory
-      - run: echo "hello world" # run the `echo` command
       - run:
-          name: install uv
-          command: curl -LsSf https://astral.sh/uv/0.4.8/install.sh | sh
-      - run: 
-          name: set up env
-          command: |
-            source $HOME/.cargo/env
-            uv sync --frozen
+          <<: *set_up_uv
+
 
 workflows:
   my-workflow:
