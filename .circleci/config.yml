@@ -25,13 +25,11 @@ version: 2.1
 
 jobs:
   hello-job:
+    <<: *set_up_uv
     docker:
       - image: cimg/python:3.10 # the primary container, where your job's commands are run
     steps:
-      - checkout # check out the code in the project directory
-      - run:
-          <<: *set_up_uv
-
+      - run: uv --version # check out the code in the project directory
 
 workflows:
   my-workflow:
