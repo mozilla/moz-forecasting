@@ -38,9 +38,7 @@ class AdTilesForecastFlow(FlowSpec):
         # load config
         self.config_data = yaml.safe_load(self.config)
 
-        # first_day_of_current_month = datetime.today().replace(day=1)
-        # for testing use last month because that is how the notebook is set up
-        first_day_of_current_month = datetime(2024, 8, 1)
+        first_day_of_current_month = datetime.today().replace(day=1)
         last_day_of_previous_month = first_day_of_current_month - timedelta(days=1)
         first_day_of_previous_month = last_day_of_previous_month.replace(day=1)
         self.observed_start_date = first_day_of_previous_month - relativedelta(years=1)
@@ -264,30 +262,21 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def add_impression_forecast(self):
-        ### ADJUST FOR AVERAGE OF LAST 6 MONTH'S FILL
+        six_months_before_obs_end = self.observed_end_date - relativedelta(months=6)
+        observed_fill_rate_by_country = self.inventory.loc[
+            (self.inventory.submission_month <= self.observed_end_date)
+            & (self.inventory.submission_month >= six_months_before_obs_end),
+            ["live_markets", "fill_rate"],
+        ]
 
-        # turn into dynamic query, maybe report
-        # 6 mo running avg of query
-        fill_last = {
-            "AU": 0.765,
-            "BR": 0.847,  # changed by ~.05
-            "CA": 0.861,
-            "DE": 0.882,
-            "ES": 0.880,
-            "FR": 0.825,
-            "GB": 0.867,
-            "IN": 0.707,  # changed by ~.05
-            "IT": 0.866,
-            "JP": 0.753,
-            "MX": 0.873,
-            "US": 0.930,
-        }
+        average_fill_rate_by_country = (
+            observed_fill_rate_by_country.groupby("live_markets").mean().reset_index()
+        )
 
-        fill_last_dat = pd.Series(fill_last, name="fill_rate")
-        fill_last_dat.index.name = "live_markets"
-        fill_last_dat.reset_index()
+        print(average_fill_rate_by_country)
+
         self.revenue_forecast = pd.merge(
-            self.inventory_forecast, fill_last_dat, on="live_markets"
+            self.inventory_forecast, average_fill_rate_by_country, on="live_markets"
         )
         self.revenue_forecast["expected_impressions_last_cap"] = (
             self.revenue_forecast["country_inventory"]
@@ -300,7 +289,7 @@ class AdTilesForecastFlow(FlowSpec):
         # Update these dates accordingly
         date_start_direct_sales, new_year_date = "2023-10-01", "2024-01-01"
         # next_date = '2024-08-01' # Jan 2024: Updated as per agreement with working group on 1/15 that direct sales should go up in H2
-        next_date = "2025-01-01"  # Feb 2024: Updated as per agreement with working group that direct sales should go up after 2024-12-31
+        next_date = "2025-02-01"  # Feb 2024: Updated as per agreement with working group that direct sales should go up after 2024-12-31
 
         # Tile 2 inventory allocation / 2 -> full inventory that we'll retain
         first_stage_allocation = 1.00 - (0.10 / 2)
@@ -416,7 +405,7 @@ class AdTilesForecastFlow(FlowSpec):
         self.output_df["submission_month"] = self.output_df["submission_month"].astype(
             "datetime64[ms]"
         )
-        nb_df = pd.read_parquet("nb_output.parquet")
+        nb_df = pd.read_parquet("nb_output_new.parquet")
         pd.testing.assert_frame_equal(
             nb_df.reset_index(drop=True),
             self.output_df.reset_index(drop=True),
