@@ -18,7 +18,8 @@ commands:
           command: export PATH="$HOME/.cargo/bin/:$PATH"
       - run:
           name: install dependencies
-          command: uv sync --frozen
+          command: echo $PATH
+      - run:  uv sync --frozen
 
 
 
