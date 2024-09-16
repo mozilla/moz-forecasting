@@ -27,10 +27,7 @@ jobs:
       - uv_setup
       - run:
           name: activate_env
-          command: source $HOME/.cargo/env
-      - run:
-          name: install dependencies
-          command: uv sync --frozen
+          command: source $HOME/.cargo/env & uv sync --frozen
 
 workflows:
   my-workflow:
