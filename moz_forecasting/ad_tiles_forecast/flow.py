@@ -85,7 +85,6 @@ class AdTilesForecastFlow(FlowSpec):
         observed_end_date = self.observed_end_date.strftime("%Y-%m-%d")
 
         query = f"""
-        WITH tmp_kpi_forecasts AS (
             WITH most_recent_forecasts AS (
                 SELECT aggregation_period,
                     metric_alias,
@@ -94,30 +93,26 @@ class AdTilesForecastFlow(FlowSpec):
                     MAX(forecast_predicted_at) AS forecast_predicted_at
                 FROM `moz-fx-data-shared-prod.telemetry_derived.kpi_forecasts_v0`
                 GROUP BY aggregation_period, metric_alias, metric_hub_app_name, metric_hub_slug
-            )
-
+            ),
+            tmp_kpi_forecasts as (
             SELECT forecasts.* EXCEPT(forecast_parameters)
                 FROM `{table_id_1}` AS forecasts
                 JOIN most_recent_forecasts
             USING(aggregation_period, metric_alias, metric_hub_app_name, metric_hub_slug, forecast_predicted_at)
             ORDER BY submission_date ASC
             )
-        SELECT
-            *
-        FROM
-            (SELECT
-                    (tmp_kpi_forecasts.submission_date ) AS submission_month,
-                    AVG(tmp_kpi_forecasts.value ) AS cdau
-                FROM tmp_kpi_forecasts
-                WHERE (
-                    ((tmp_kpi_forecasts.measure ) = 'observed'  AND (( tmp_kpi_forecasts.submission_date  ) >= (DATE('{observed_start_date}')) AND ( tmp_kpi_forecasts.submission_date  ) < (DATE('{observed_end_date}'))))
-                    OR ((tmp_kpi_forecasts.measure ) = 'p50'  AND (( tmp_kpi_forecasts.submission_date  ) >= (DATE('{forecast_date_start}')) AND ( tmp_kpi_forecasts.submission_date  ) <= (DATE('{forecast_date_end}'))))
-                    )
-                AND (tmp_kpi_forecasts.aggregation_period ) = 'month'
-                AND (tmp_kpi_forecasts.metric_alias ) LIKE 'desktop_dau'
-                GROUP BY
-                    1
-                HAVING cdau IS NOT NULL) AS t3
+        SELECT (tmp_kpi_forecasts.submission_date ) AS submission_month,
+            AVG(tmp_kpi_forecasts.value ) AS cdau
+        FROM tmp_kpi_forecasts
+        WHERE (
+            ((tmp_kpi_forecasts.measure ) = 'observed'  AND (( tmp_kpi_forecasts.submission_date  ) >= (DATE('{observed_start_date}')) AND ( tmp_kpi_forecasts.submission_date  ) < (DATE('{observed_end_date}'))))
+            OR ((tmp_kpi_forecasts.measure ) = 'p50'  AND (( tmp_kpi_forecasts.submission_date  ) >= (DATE('{forecast_date_start}')) AND ( tmp_kpi_forecasts.submission_date  ) <= (DATE('{forecast_date_end}'))))
+            )
+        AND (tmp_kpi_forecasts.aggregation_period ) = 'month'
+        AND (tmp_kpi_forecasts.metric_alias ) LIKE 'desktop_dau'
+        GROUP BY
+            1
+        HAVING cdau IS NOT NULL
         ORDER BY
             1
         """
