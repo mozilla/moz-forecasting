@@ -13,6 +13,12 @@ commands:
       - run:
           name: install uv
           command: curl -LsSf https://astral.sh/uv/0.4.8/install.sh | sh
+      - run:
+          name: activate_env
+          command: export PATH="$HOME/.cargo/bin/:$PATH"
+      - run:
+          name: install dependencies
+          command: uv sync --frozen
 
 
 
@@ -25,9 +31,6 @@ jobs:
     steps:
       - checkout
       - uv_setup
-      - run:
-          name: activate_env
-          command: source $HOME/.cargo/env & uv sync --frozen
 
 workflows:
   my-workflow:
