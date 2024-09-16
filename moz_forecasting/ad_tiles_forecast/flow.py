@@ -262,6 +262,7 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def add_impression_forecast(self):
+        """Add forecast for expected impressions"""
         six_months_before_obs_end = self.observed_end_date - relativedelta(months=6)
         observed_fill_rate_by_country = self.inventory.loc[
             (self.inventory.submission_month <= self.observed_end_date)
@@ -272,8 +273,6 @@ class AdTilesForecastFlow(FlowSpec):
         average_fill_rate_by_country = (
             observed_fill_rate_by_country.groupby("live_markets").mean().reset_index()
         )
-
-        print(average_fill_rate_by_country)
 
         self.revenue_forecast = pd.merge(
             self.inventory_forecast, average_fill_rate_by_country, on="live_markets"
@@ -286,6 +285,7 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def account_for_direct_allocations(self):
+        """remove direct sales allocations from impressions forecast"""
         # Update these dates accordingly
         date_start_direct_sales, new_year_date = "2023-10-01", "2024-01-01"
         # next_date = '2024-08-01' # Jan 2024: Updated as per agreement with working group on 1/15 that direct sales should go up in H2
@@ -331,59 +331,37 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def forecast_revenue(self):
+        """forecast revenue accounting for direct sales"""
         RPMs = self.config_data["RPM"]
 
-        RPM_dat = pd.Series(RPMs, name="RPM")
-        RPM_dat.index.name = "live_markets"
-        RPM_dat.reset_index()
-        revenue_forecast_temp = pd.merge(
-            self.revenue_forecast, RPM_dat, on="live_markets"
+        RPM_df = pd.DataFrame(
+            [{"live_markets": key, "RPM": val} for key, val in RPMs.items()]
         )
 
-        RPM_df = pd.DataFrame(RPM_dat)
-        RPM_df["valid_until"] = pd.to_datetime("2024-09-01")
-        RPM2_df = RPM_df.copy()
+        revenue_forecast = pd.merge(self.revenue_forecast, RPM_df, on="live_markets")
 
-        RPM2_df["RPM"] = RPM2_df["RPM"] * 1.100
-        RPM2_df["valid_until"] = pd.to_datetime("2099-01-01")
-
-        RPM_df = pd.concat([RPM_df, RPM2_df]).reset_index()
-        RPM_df
-
-        revenue_forecast_exploded = revenue_forecast_temp.merge(RPM_df, how="cross")
-        revenue_forecast_1 = revenue_forecast_exploded.query(
-            "live_markets_x == live_markets_y & submission_month<=valid_until & valid_until=='2024-09-01'"
-        )
-        revenue_forecast_2 = revenue_forecast_exploded.query(
-            "live_markets_x == live_markets_y & submission_month>'2024-09-01' & valid_until>'2024-09-01'"
-        )
-
-        revenue_forecast_final = (
-            pd.concat([revenue_forecast_1, revenue_forecast_2])
-            .drop(columns=["RPM_x", "live_markets_y", "valid_until"])
-            .sort_values(["live_markets_x", "submission_month"])
-        )
-        revenue_forecast_final.rename(
-            columns={"live_markets_x": "live_markets", "RPM_y": "RPM"}, inplace=True
+        after_valid_date = revenue_forecast["submission_month"] > "2024-09-01"
+        revenue_forecast.loc[after_valid_date, "RPM"] = (
+            revenue_forecast.loc[after_valid_date, "RPM"] * 1.1
         )
 
         # multiply inventory by RPMs
-        revenue_forecast_final["revenue_no_ds"] = (
-            pd.to_numeric(revenue_forecast_final["expected_impressions_last_cap"])
-            * revenue_forecast_final["RPM"]
+        revenue_forecast["revenue_no_ds"] = (
+            pd.to_numeric(revenue_forecast["expected_impressions_last_cap"])
+            * revenue_forecast["RPM"]
             / 1000
         )
-        revenue_forecast_final["revenue_ds"] = (
-            pd.to_numeric(revenue_forecast_final["expected_impressions_direct_sales"])
-            * revenue_forecast_final["RPM"]
+        revenue_forecast["revenue_ds"] = (
+            pd.to_numeric(revenue_forecast["expected_impressions_direct_sales"])
+            * revenue_forecast["RPM"]
             / 1000
         )
 
-        revenue_forecast_final.groupby(["submission_month"]).sum()[
+        revenue_forecast.groupby(["submission_month"]).sum()[
             ["revenue_ds", "revenue_no_ds"]
         ]
 
-        self.output_df = revenue_forecast_final
+        self.output_df = revenue_forecast
 
         self.next(self.end)
 
@@ -406,9 +384,14 @@ class AdTilesForecastFlow(FlowSpec):
             "datetime64[ms]"
         )
         nb_df = pd.read_parquet("nb_output_new.parquet")
+        assert set(nb_df.columns) == set(self.output_df.columns)
         pd.testing.assert_frame_equal(
-            nb_df.reset_index(drop=True),
-            self.output_df.reset_index(drop=True),
+            nb_df.sort_values(["submission_month", "live_markets"]).reset_index(
+                drop=True
+            ),
+            self.output_df.sort_values(
+                ["submission_month", "live_markets"]
+            ).reset_index(drop=True),
             check_exact=False,
             rtol=0.05,
             check_dtype=False,
