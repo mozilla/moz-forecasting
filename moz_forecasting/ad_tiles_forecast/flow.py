@@ -4,11 +4,12 @@
 
 from datetime import datetime, timedelta
 
-from metaflow import FlowSpec, step, project
+from metaflow import FlowSpec, step, project, IncludeFile
 from google.cloud import bigquery
 import pandas as pd
 import numpy as np
 from dateutil.relativedelta import relativedelta
+import yaml
 
 GCS_PROJECT_NAME = "moz-fx-data-bq-data-science"
 GCS_BUCKET_NAME = "bucket-name-here"
@@ -17,9 +18,15 @@ GCS_BUCKET_NAME = "bucket-name-here"
 @project(name="ad_tiles_forecast")
 class AdTilesForecastFlow(FlowSpec):
     """
-    This flow is a template for you to use
-    for orchestration of your model.
+    Flow for ads tiles forecasting
     """
+
+    config = IncludeFile(
+        name="config",
+        is_text=True,
+        help="configuration for flow",
+        default="moz_forecasting/ad_tiles_forecast/config.yaml",
+    )
 
     @step
     def start(self):
@@ -28,7 +35,8 @@ class AdTilesForecastFlow(FlowSpec):
 
         You can use it for collecting/preprocessing data or other setup tasks.
         """
-        # set up GCS
+        # load config
+        self.config_data = yaml.safe_load(self.config)
 
         # first_day_of_current_month = datetime.today().replace(day=1)
         # for testing use last month because that is how the notebook is set up
@@ -37,17 +45,24 @@ class AdTilesForecastFlow(FlowSpec):
         first_day_of_previous_month = last_day_of_previous_month.replace(day=1)
         self.observed_start_date = first_day_of_previous_month - relativedelta(years=1)
         self.observed_end_date = last_day_of_previous_month
+
+        # tables to get data from
+        self.tile_data_table = "moz-fx-data-bq-data-science.jsnyder.tiles_results_temp"
+        self.kpi_forecast_table = (
+            "moz-fx-data-shared-prod.telemetry_derived.kpi_forecasts_v0"
+        )
+        self.active_users_aggregates_table = (
+            "moz-fx-data-shared-prod.telemetry.active_users_aggregates"
+        )
+
         self.next(self.get_tile_data)
 
-    # @kubernetes(image="registry.hub.docker.com/chelseatroy/mozmlops:latest", cpu=1)
     @step
     def get_tile_data(self):
         """
         retrieve tile impressions
         """
-        tile_data_query = (
-            "SELECT * FROM `moz-fx-data-bq-data-science.jsnyder.tiles_results_temp`"
-        )
+        tile_data_query = f"SELECT * FROM `{self.tile_data_table}`"
         client = bigquery.Client(project=GCS_PROJECT_NAME)
         hist_inventory = client.query(tile_data_query).to_dataframe()
 
@@ -74,7 +89,7 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def get_kpi_forecast(self):
-        table_id_1 = "moz-fx-data-shared-prod.telemetry_derived.kpi_forecasts_v0"
+        """Get KPI forecast data"""
         forecast_date_start = self.observed_end_date.strftime("%Y-%m-%d")
         forecast_date_end_dt = self.observed_end_date.replace(day=1) + relativedelta(
             months=18
@@ -84,6 +99,8 @@ class AdTilesForecastFlow(FlowSpec):
         observed_start_date = self.observed_start_date.strftime("%Y-%m-%d")
         observed_end_date = self.observed_end_date.strftime("%Y-%m-%d")
 
+        # there can be multiple forecasts for a given date
+        # joining to most_recent_forecasts selects only the most recent
         query = f"""
             WITH most_recent_forecasts AS (
                 SELECT aggregation_period,
@@ -96,10 +113,9 @@ class AdTilesForecastFlow(FlowSpec):
             ),
             tmp_kpi_forecasts as (
             SELECT forecasts.* EXCEPT(forecast_parameters)
-                FROM `{table_id_1}` AS forecasts
+                FROM `{self.kpi_forecast_table}` AS forecasts
                 JOIN most_recent_forecasts
             USING(aggregation_period, metric_alias, metric_hub_app_name, metric_hub_slug, forecast_predicted_at)
-            ORDER BY submission_date ASC
             )
         SELECT (tmp_kpi_forecasts.submission_date ) AS submission_month,
             AVG(tmp_kpi_forecasts.value ) AS cdau
@@ -113,116 +129,99 @@ class AdTilesForecastFlow(FlowSpec):
         GROUP BY
             1
         HAVING cdau IS NOT NULL
-        ORDER BY
-            1
         """
 
-        client = bigquery.Client(project="mozdata")
+        client = bigquery.Client(project=GCS_PROJECT_NAME)
         query_job = client.query(query)
 
         kpi_forecast = query_job.to_dataframe()
-        kpi_forecast["merge_key"] = 1
 
         self.kpi_forecast = kpi_forecast
 
-        self.next(self.get_ratio_from_live_markets)
+        self.next(self.get_dau_by_country)
 
     @step
-    def get_ratio_from_live_markets(self):
-        table_id_1 = "moz-fx-data-shared-prod.telemetry.active_users_aggregates"
-        table_id_2 = "mozdata.static.country_codes_v1"
-
+    def get_dau_by_country(self):
+        """get dau by country"""
+        # get markets from RPM
+        live_markets = self.config_data["RPM"].keys()
+        live_markets_string = ",".join(f"'{el}'" for el in live_markets)
         query = f"""
         SELECT
-        (FORMAT_DATE('%Y-%m', active_users_aggregates.submission_date )) AS submission_month,
-        CASE
-            WHEN (countries.code = 'AU') THEN 'AU'
-            WHEN (countries.code = 'BR') THEN 'BR'
-            WHEN (countries.code = 'CA') THEN 'CA'
-            WHEN (countries.code = 'DE') THEN 'DE'
-            WHEN (countries.code = 'ES') THEN 'ES'
-            WHEN (countries.code = 'FR') THEN 'FR'
-            WHEN (countries.code = 'GB') THEN 'GB'
-            WHEN (countries.code = 'IN') THEN 'IN'
-            WHEN (countries.code = 'IT') THEN 'IT'
-            WHEN (countries.code = 'JP') THEN 'JP'
-            WHEN (countries.code = 'MX') THEN 'MX'
-            WHEN (countries.code = 'US') THEN 'US'
-        ELSE
-        'Other'
-        END
-        AS live_markets,
-        COALESCE(SUM((active_users_aggregates.dau) ), 0) AS dau_by_country
+        (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
+        IF(country IN ({live_markets_string}), country, "Other") AS live_markets,
+        COALESCE(SUM((dau) ), 0) AS dau_by_country
         FROM
-        `{table_id_1}` AS active_users_aggregates
-        LEFT JOIN
-        `{table_id_2}` AS countries
-        ON
-        active_users_aggregates.country = countries.code
+        `{self.active_users_aggregates_table}` AS active_users_aggregates
         WHERE
-        (active_users_aggregates.app_name ) = 'Firefox Desktop'
-        AND ((( active_users_aggregates.submission_date ) >= ((DATE_ADD(DATE_TRUNC(CURRENT_DATE('UTC'), MONTH), INTERVAL -12 MONTH)))
-            AND ( active_users_aggregates.submission_date ) < ((DATE_ADD(DATE_ADD(DATE_TRUNC(CURRENT_DATE('UTC'), MONTH), INTERVAL -12 MONTH), INTERVAL 12 MONTH)))))
+        (app_name ) = 'Firefox Desktop'
+        AND ((( submission_date ) >= ((DATE_ADD(DATE_TRUNC(CURRENT_DATE('UTC'), MONTH), INTERVAL -12 MONTH)))
+            AND ( submission_date ) < DATE_TRUNC(CURRENT_DATE('UTC'), MONTH)))
         GROUP BY
         1,
         2
-        ORDER BY 1, 2
         """
 
-        client = bigquery.Client(project="mozdata")
+        client = bigquery.Client(project=GCS_PROJECT_NAME)
         query_job = client.query(query)
 
-        self.mo_by_country = query_job.to_dataframe(
-            progress_bar_type="tqdm",
-            bool_dtype=None,
-            int_dtype=None,
-            float_dtype=None,
-            date_dtype=None,
-        )
+        self.dau_by_country = query_job.to_dataframe()
         self.next(self.join_kpi_forecasts_and_historical_usage)
 
     @step
     def join_kpi_forecasts_and_historical_usage(self):
+        """join observed values for dau and dau_by_country to get observed share by market"""
         # Join KPI forecast and historical usage distribution to get country-level KPI forecast
         self.kpi_forecast["submission_month"] = pd.to_datetime(
             self.kpi_forecast["submission_month"]
         )
-        self.mo_by_country["submission_month"] = pd.to_datetime(
-            self.mo_by_country["submission_month"]
+        self.dau_by_country["submission_month"] = pd.to_datetime(
+            self.dau_by_country["submission_month"]
         )
 
+        kpi_forecast_observed = self.kpi_forecast[
+            (self.kpi_forecast.submission_month >= self.observed_start_date)
+            & (self.kpi_forecast.submission_month <= self.observed_end_date)
+        ]
+
+        dau_live_markets = self.dau_by_country[
+            self.dau_by_country.live_markets != "Other"
+        ]
+
         hist_dau = pd.merge(
-            self.kpi_forecast[
-                (self.kpi_forecast.submission_month >= self.observed_start_date)
-                & (self.kpi_forecast.submission_month <= self.observed_end_date)
-            ],
-            self.mo_by_country[self.mo_by_country.live_markets != "Other"],
+            kpi_forecast_observed,
+            dau_live_markets,
             how="left",
             on=["submission_month"],
         )
 
         hist_dau["share_by_market"] = hist_dau["dau_by_country"] / hist_dau["cdau"]
         self.hist_dau = hist_dau
-        self.next(self.calculate_new_tabs_per_client)
+        self.next(self.calculate_observed_dau_by_country)
 
     @step
-    def calculate_new_tabs_per_client(self):
+    def calculate_observed_dau_by_country(self):
+        """Get the mean of the observed share_by_market and inventory_per_country
+        over time by country"""
         # Merge country level KPI forecast with inventory data
 
-        inventory_filter = (
+        inventory_observed_data_filter = (
             self.inventory.submission_month >= self.observed_start_date
         ) & (self.inventory.submission_month <= self.observed_end_date)
-        # 'live_markets' <- 'country'
+        inventory_observed = self.inventory.loc[
+            inventory_observed_data_filter,
+            ["submission_month", "live_markets", "total_inventory_1and2"],
+        ]
+
+        # recall 'live_markets' column has country codes as values
         hist_dau_inv = pd.merge(
             self.hist_dau,
-            self.inventory[inventory_filter][
-                ["submission_month", "live_markets", "total_inventory_1and2"]
-            ],
+            inventory_observed,
             how="inner",
             on=["live_markets", "submission_month"],
         )
         hist_dau_inv["inv_per_client"] = (
-            1.0 * hist_dau_inv["total_inventory_1and2"] / hist_dau_inv["dau_by_country"]
+            hist_dau_inv["total_inventory_1and2"] / hist_dau_inv["dau_by_country"]
         )
 
         hist_avg = (
@@ -230,20 +229,20 @@ class AdTilesForecastFlow(FlowSpec):
             .mean()[["share_by_market", "inv_per_client"]]
             .reset_index()
         )
-        hist_avg["merge_key"] = 1
         self.hist_avg = hist_avg
-        self.next(self.merge_forecast_with_historical_average)
+        self.next(self.calculate_forecasted_inventory_by_country)
 
     @step
-    def merge_forecast_with_historical_average(self):
+    def calculate_forecasted_inventory_by_country(self):
+        """merge country averages onto forecast to calculate forecast
+        of the inventory by country"""
+        kpi_forecast_future = self.kpi_forecast[
+            self.kpi_forecast.submission_month > self.observed_end_date
+        ]
         inventory_forecast = pd.merge(
-            self.kpi_forecast[
-                self.kpi_forecast.submission_month
-                >= self.observed_end_date + relativedelta(days=1)
-            ],
+            kpi_forecast_future,
             self.hist_avg,
-            how="left",
-            on="merge_key",
+            how="cross",
         )[
             [
                 "submission_month",
@@ -267,6 +266,8 @@ class AdTilesForecastFlow(FlowSpec):
     def add_impression_forecast(self):
         ### ADJUST FOR AVERAGE OF LAST 6 MONTH'S FILL
 
+        # turn into dynamic query, maybe report
+        # 6 mo running avg of query
         fill_last = {
             "AU": 0.765,
             "BR": 0.847,  # changed by ~.05
@@ -341,20 +342,7 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def forecast_revenue(self):
-        RPMs = {
-            "AU": 0.09,
-            "BR": 0.06,
-            "CA": 0.30,
-            "DE": 0.48,
-            "ES": 0.18,
-            "FR": 0.21,
-            "GB": 0.35,
-            "IN": 0.04,
-            "IT": 0.33,
-            "JP": 0.02,
-            "MX": 0.19,
-            "US": 0.57,
-        }
+        RPMs = self.config_data["RPM"]
 
         RPM_dat = pd.Series(RPMs, name="RPM")
         RPM_dat.index.name = "live_markets"
@@ -434,6 +422,7 @@ class AdTilesForecastFlow(FlowSpec):
             self.output_df.reset_index(drop=True),
             check_exact=False,
             rtol=0.05,
+            check_dtype=False,
         )
 
 
