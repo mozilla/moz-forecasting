@@ -15,7 +15,7 @@ commands:
           command: curl -LsSf https://astral.sh/uv/0.4.8/install.sh | sh
       - run:
           name: activate_env
-          command: export PATH="$HOME/.cargo/bin/:$PATH"
+          command: echo 'export PATH="$HOME/.cargo/bin/:$PATH"' >> "$BASH_ENV"
       - run:
           name: install dependencies
           command: echo $PATH
