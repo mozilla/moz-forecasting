@@ -11,3 +11,25 @@ RPM:
   JP: 0.02
   MX: 0.19
   US: 0.57
+
+direct_allocations:
+  - markets:
+      - DE
+      - GB
+      - US
+    allocation: .95
+    start_month: 2023-10
+    end_month: 2023-12
+  - markets:
+      - DE
+      - GB
+      - US
+    allocation: .95
+    start_month: 2024-01
+    end_month: 2025-01
+  - markets:
+      - DE
+      - GB
+      - US
+    allocation: .9
+    start_month: 2025-02

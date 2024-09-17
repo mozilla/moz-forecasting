@@ -26,14 +26,15 @@ commands:
 version: 2.1
 
 jobs:
-  hello-job:
+  pytest:
     docker:
       - image: cimg/python:3.10 # the primary container, where your job's commands are run
     steps:
       - checkout
       - uv_setup
+      - run: uv run pytest
 
 workflows:
   my-workflow:
     jobs:
-      - hello-job
+      - pytest

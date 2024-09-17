@@ -1,3 +1,7 @@
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
 [project]
 name = "moz-forecasting"
 version = "0.1.0"
@@ -15,4 +19,5 @@ dependencies = [
     "pandas>=2.2.2",
     "pip>=24.2",
     "proto-plus==1.24.0.dev1",
+    "pytest>=8.3.3",
 ]

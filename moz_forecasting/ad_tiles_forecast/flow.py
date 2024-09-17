@@ -15,6 +15,77 @@ GCS_PROJECT_NAME = "moz-fx-data-bq-data-science"
 GCS_BUCKET_NAME = "bucket-name-here"
 
 
+def get_direct_allocation_df(
+    allocation_config: list, min_month: pd.Timestamp, max_month: pd.Timestamp
+) -> pd.DataFrame:
+    """function to generate a dataframe where each record represents a
+        single month and country, with the cumulative direct allocation
+        in the "direct_sales_allocations" column
+
+    Args:
+        allocation_config (list): list of direct allocation segments
+            must include 'live_markets' (country) and 'allocation' keys,
+            `start_month` and `end_month` are optional
+        min_month (pd.Timestamp): minimum month of the data the output
+            of this function will be joined to, acts as the starting month for
+            a segment when start_month is not set
+        max_month (pd.Timestamp): maximum month of the data the output
+            of this function will be joined to, acts as the ending month (inclusive) for
+            a segment when end_month is not set
+
+    Raises:
+        ValueError: if the allocation is >100% for a given record an error is raised
+
+    Returns:
+        pd.DataFrame: dataframe containing direct allocation information for each
+            country and month specified in the allocation_config
+    """
+    direct_allocation_df_list = []
+    for segment in allocation_config:
+        # if start_month isn't set for the direct allocation segment
+        # use min_month
+        first_month = min_month
+        if "start_month" in segment:
+            first_month = datetime.strptime(segment["start_month"], "%Y-%m")
+
+        # if end_month isn't used for the direct allocation segment
+        # use max_month
+        last_month = max_month
+        if "end_month" in segment:
+            last_month = datetime.strptime(segment["end_month"], "%Y-%m")
+
+        date_range = pd.date_range(first_month, last_month, freq="MS").tolist()
+        df = pd.DataFrame(
+            {
+                "submission_month": date_range,
+                "direct_sales_allocations": [segment["allocation"]] * len(date_range),
+            }
+        )
+        for country in segment["markets"]:
+            df["live_markets"] = country
+            direct_allocation_df_list.append(df.copy())
+    direct_allocation_df = pd.concat(direct_allocation_df_list)
+
+    # the same month/country combination can be present in multiple
+    # direct allocation segments
+    # aggregate to get the sum
+    direct_allocation_df = (
+        direct_allocation_df.groupby(["submission_month", "live_markets"])
+        .sum()
+        .reset_index()
+    )
+
+    # ensure that no month/country combination is more than 100% allocated
+    all_allocated = direct_allocation_df[
+        direct_allocation_df["direct_sales_allocations"] > 1
+    ]
+    if len(all_allocated) > 0:
+        raise ValueError(
+            f"More than 100% of inventory allocated for direct sales\n{all_allocated}"
+        )
+    return direct_allocation_df
+
+
 @project(name="ad_tiles_forecast")
 class AdTilesForecastFlow(FlowSpec):
     """
@@ -286,47 +357,38 @@ class AdTilesForecastFlow(FlowSpec):
     @step
     def account_for_direct_allocations(self):
         """remove direct sales allocations from impressions forecast"""
-        # Update these dates accordingly
-        date_start_direct_sales, new_year_date = "2023-10-01", "2024-01-01"
-        # next_date = '2024-08-01' # Jan 2024: Updated as per agreement with working group on 1/15 that direct sales should go up in H2
-        next_date = "2025-02-01"  # Feb 2024: Updated as per agreement with working group that direct sales should go up after 2024-12-31
-
-        # Tile 2 inventory allocation / 2 -> full inventory that we'll retain
-        first_stage_allocation = 1.00 - (0.10 / 2)
-        second_stage_allocation = 1.00 - (
-            0.10 / 2
-        )  # Revised down from 0.20 / 2 on 11/8 due to weakness in sales pipeline
-        third_stage_allocation = 1.00 - (0.20 / 2)
-
-        country_mask = self.revenue_forecast.live_markets.isin(["DE", "GB", "US"])
-        self.revenue_forecast["direct_sales_markets"] = np.where(country_mask, "y", "n")
-        first_stage_mask = (
-            (self.revenue_forecast.submission_month >= date_start_direct_sales)
-            & (self.revenue_forecast.submission_month < new_year_date)
-        ) & (country_mask)
-        second_stage_mask = (
-            (self.revenue_forecast.submission_month >= new_year_date)
-            & (self.revenue_forecast.submission_month < next_date)
-        ) & (country_mask)
-        third_stage_mask = (self.revenue_forecast.submission_month >= next_date) & (
-            country_mask
+        direct_allocation_df = get_direct_allocation_df(
+            self.config_data["direct_allocations"],
+            min_month=self.revenue_forecast["submission_month"].min(),
+            max_month=self.revenue_forecast["submission_month"].max(),
         )
-        self.revenue_forecast["direct_sales_allocations"] = np.where(
-            first_stage_mask,
-            first_stage_allocation,
-            np.where(
-                second_stage_mask,
-                second_stage_allocation,
-                np.where(third_stage_mask, third_stage_allocation, 1.00),
-            ),
+        self.revenue_forecast = self.revenue_forecast.merge(
+            direct_allocation_df,
+            on=["submission_month", "live_markets"],
+            how="left",
         )
 
-        self.revenue_forecast["expected_impressions_direct_sales"] = np.where(
-            self.revenue_forecast.direct_sales_markets == "y",
+        self.revenue_forecast["direct_sales_markets"] = "n"
+        self.revenue_forecast.loc[
+            self.revenue_forecast["direct_sales_allocations"] > 0.0,
+            "direct_sales_markets",
+        ] = "y"
+
+        self.revenue_forecast["direct_sales_allocations"] = self.revenue_forecast[
+            "direct_sales_allocations"
+        ].fillna(1.0)
+
+        self.revenue_forecast["expected_impressions_direct_sales"] = (
             self.revenue_forecast["expected_impressions_last_cap"]
-            * self.revenue_forecast["direct_sales_allocations"],
-            self.revenue_forecast["expected_impressions_last_cap"],
+            * self.revenue_forecast["direct_sales_allocations"]
         )
+
+        # self.revenue_forecast["expected_impressions_direct_sales"] = np.where(
+        #     self.revenue_forecast.direct_sales_markets == "y",
+        #     self.revenue_forecast["expected_impressions_last_cap"]
+        #     * self.revenue_forecast["direct_sales_allocations"],
+        #     self.revenue_forecast["expected_impressions_last_cap"],
+        # )
         self.next(self.forecast_revenue)
 
     @step
@@ -389,9 +451,9 @@ class AdTilesForecastFlow(FlowSpec):
             nb_df.sort_values(["submission_month", "live_markets"]).reset_index(
                 drop=True
             ),
-            self.output_df.sort_values(
-                ["submission_month", "live_markets"]
-            ).reset_index(drop=True),
+            self.output_df[nb_df.columns]
+            .sort_values(["submission_month", "live_markets"])
+            .reset_index(drop=True),
             check_exact=False,
             rtol=0.05,
             check_dtype=False,
