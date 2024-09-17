@@ -32,6 +32,7 @@ jobs:
     steps:
       - checkout
       - uv_setup
+      - run: ls
       - run: uv run pytest
 
 workflows:
