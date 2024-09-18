@@ -33,3 +33,7 @@ direct_allocations:
       - US
     allocation: .9
     start_month: 2025-02
+
+output:
+  output_database: jsnyder
+  output_table: amp_rpm_forecasts

@@ -27,7 +27,7 @@ def get_direct_allocation_df(
 
     Args:
         allocation_config (list): list of direct allocation segments
-            must include 'live_markets' (country) and 'allocation' keys,
+            must include 'country' (country) and 'allocation' keys,
             `start_month` and `end_month` are optional
         min_month (pd.Timestamp): minimum month of the data the output
             of this function will be joined to, acts as the starting month for
@@ -67,7 +67,7 @@ def get_direct_allocation_df(
             }
         )
         for country in segment["markets"]:
-            df["live_markets"] = country
+            df["country"] = country
             direct_allocation_df_list.append(df.copy())
     direct_allocation_df = pd.concat(direct_allocation_df_list)
 
@@ -75,7 +75,7 @@ def get_direct_allocation_df(
     # direct allocation segments
     # aggregate to get the sum
     direct_allocation_df = (
-        direct_allocation_df.groupby(["submission_month", "live_markets"])
+        direct_allocation_df.groupby(["submission_month", "country"])
         .sum()
         .reset_index()
     )
@@ -112,8 +112,8 @@ class AdTilesForecastFlow(FlowSpec):
         # load config
         self.config_data = yaml.safe_load(self.config)
 
-        first_day_of_current_month = datetime.today().replace(day=1)
-        last_day_of_previous_month = first_day_of_current_month - timedelta(days=1)
+        self.first_day_of_current_month = datetime.today().replace(day=1)
+        last_day_of_previous_month = self.first_day_of_current_month - timedelta(days=1)
         first_day_of_previous_month = last_day_of_previous_month.replace(day=1)
         self.observed_start_date = first_day_of_previous_month - relativedelta(years=1)
         self.observed_end_date = last_day_of_previous_month
@@ -151,7 +151,7 @@ class AdTilesForecastFlow(FlowSpec):
             data_types_dict
         )
         inventory["submission_month"] = pd.to_datetime(inventory["submission_month"])
-        inventory.rename(columns={"country": "live_markets"}, inplace=True)
+        inventory.rename(columns={"country": "country"}, inplace=True)
 
         self.inventory = inventory
 
@@ -226,12 +226,12 @@ class AdTilesForecastFlow(FlowSpec):
     def get_dau_by_country(self):
         """Get dau by country."""
         # get markets from RPM
-        live_markets = self.config_data["RPM"].keys()
-        live_markets_string = ",".join(f"'{el}'" for el in live_markets)
+        countries = self.config_data["RPM"].keys()
+        countries_string = ",".join(f"'{el}'" for el in countries)
         query = f"""
         SELECT
         (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
-        IF(country IN ({live_markets_string}), country, "Other") AS live_markets,
+        IF(country IN ({countries_string}), country, "Other") AS country,
         COALESCE(SUM((dau) ), 0) AS dau_by_country
         FROM
         `{self.active_users_aggregates_table}` AS active_users_aggregates
@@ -270,9 +270,7 @@ class AdTilesForecastFlow(FlowSpec):
             & (self.kpi_forecast.submission_month <= self.observed_end_date)
         ]
 
-        dau_live_markets = self.dau_by_country[
-            self.dau_by_country.live_markets != "Other"
-        ]
+        dau_live_markets = self.dau_by_country[self.dau_by_country.country != "Other"]
 
         hist_dau = pd.merge(
             kpi_forecast_observed,
@@ -301,22 +299,21 @@ class AdTilesForecastFlow(FlowSpec):
         ) & (self.inventory.submission_month <= self.observed_end_date)
         inventory_observed = self.inventory.loc[
             inventory_observed_data_filter,
-            ["submission_month", "live_markets", "total_inventory_1and2"],
+            ["submission_month", "country", "total_inventory_1and2"],
         ]
 
-        # recall 'live_markets' column has country codes as values
         hist_dau_inv = pd.merge(
             self.hist_dau,
             inventory_observed,
             how="inner",
-            on=["live_markets", "submission_month"],
+            on=["country", "submission_month"],
         )
         hist_dau_inv["inv_per_client"] = (
             hist_dau_inv["total_inventory_1and2"] / hist_dau_inv["dau_by_country"]
         )
 
         hist_avg = (
-            hist_dau_inv.groupby("live_markets")
+            hist_dau_inv.groupby("country")
             .mean()[["share_by_market", "inv_per_client"]]
             .reset_index()
         )
@@ -325,7 +322,7 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def calculate_forecasted_inventory_by_country(self):
-        """Calculate country_inventory.
+        """Calculate inventory_forecast.
 
         This is obtained by merging country averages onto forecast cdau
         and multiplying on the share_by_market and inv_per_client
@@ -341,7 +338,7 @@ class AdTilesForecastFlow(FlowSpec):
         )[
             [
                 "submission_month",
-                "live_markets",
+                "country",
                 "cdau",
                 "share_by_market",
                 "inv_per_client",
@@ -351,7 +348,7 @@ class AdTilesForecastFlow(FlowSpec):
         inventory_forecast["country_dau"] = (
             inventory_forecast["cdau"] * inventory_forecast["share_by_market"]
         )
-        inventory_forecast["country_inventory"] = (
+        inventory_forecast["inventory_forecast"] = (
             inventory_forecast["country_dau"] * inventory_forecast["inv_per_client"]
         )
         self.inventory_forecast = inventory_forecast
@@ -359,7 +356,7 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def add_impression_forecast(self):
-        """Add expected_impressions_last_cap.
+        """Add expected_impressions.
 
         This is obtained by multipolying the inventory forecast
         by the fill rate
@@ -368,18 +365,18 @@ class AdTilesForecastFlow(FlowSpec):
         observed_fill_rate_by_country = self.inventory.loc[
             (self.inventory.submission_month <= self.observed_end_date)
             & (self.inventory.submission_month >= six_months_before_obs_end),
-            ["live_markets", "fill_rate"],
+            ["country", "fill_rate"],
         ]
 
         average_fill_rate_by_country = (
-            observed_fill_rate_by_country.groupby("live_markets").mean().reset_index()
+            observed_fill_rate_by_country.groupby("country").mean().reset_index()
         )
 
         self.revenue_forecast = pd.merge(
-            self.inventory_forecast, average_fill_rate_by_country, on="live_markets"
+            self.inventory_forecast, average_fill_rate_by_country, on="country"
         )
-        self.revenue_forecast["expected_impressions_last_cap"] = (
-            self.revenue_forecast["country_inventory"]
+        self.revenue_forecast["expected_impressions"] = (
+            self.revenue_forecast["inventory_forecast"]
             * self.revenue_forecast["fill_rate"]
         )
         self.next(self.account_for_direct_allocations)
@@ -401,7 +398,7 @@ class AdTilesForecastFlow(FlowSpec):
         )
         self.revenue_forecast = self.revenue_forecast.merge(
             direct_allocation_df,
-            on=["submission_month", "live_markets"],
+            on=["submission_month", "country"],
             how="left",
         )
 
@@ -416,7 +413,7 @@ class AdTilesForecastFlow(FlowSpec):
         ].fillna(1.0)
 
         self.revenue_forecast["expected_impressions_direct_sales"] = (
-            self.revenue_forecast["expected_impressions_last_cap"]
+            self.revenue_forecast["expected_impressions"]
             * self.revenue_forecast["direct_sales_allocations"]
         )
 
@@ -433,10 +430,10 @@ class AdTilesForecastFlow(FlowSpec):
         RPMs = self.config_data["RPM"]
 
         RPM_df = pd.DataFrame(
-            [{"live_markets": key, "RPM": val} for key, val in RPMs.items()]
+            [{"country": key, "RPM": val} for key, val in RPMs.items()]
         )
 
-        revenue_forecast = pd.merge(self.revenue_forecast, RPM_df, on="live_markets")
+        revenue_forecast = pd.merge(self.revenue_forecast, RPM_df, on="country")
 
         after_valid_date = revenue_forecast["submission_month"] > "2024-09-01"
         revenue_forecast.loc[after_valid_date, "RPM"] = (
@@ -444,53 +441,101 @@ class AdTilesForecastFlow(FlowSpec):
         )
 
         # multiply inventory by RPMs
-        revenue_forecast["revenue_no_ds"] = (
-            pd.to_numeric(revenue_forecast["expected_impressions_last_cap"])
+        revenue_forecast["no_direct_sales"] = (
+            pd.to_numeric(revenue_forecast["expected_impressions"])
             * revenue_forecast["RPM"]
             / 1000
         )
-        revenue_forecast["revenue_ds"] = (
+        revenue_forecast["with_direct_sales"] = (
             pd.to_numeric(revenue_forecast["expected_impressions_direct_sales"])
             * revenue_forecast["RPM"]
             / 1000
         )
 
         revenue_forecast.groupby(["submission_month"]).sum()[
-            ["revenue_ds", "revenue_no_ds"]
+            ["no_direct_sales", "with_direct_sales"]
         ]
 
         self.output_df = revenue_forecast
 
-        self.next(self.end)
+        self.next(self.test)
 
     @step
-    def end(self):
+    def test(self):
         """Check outputs."""
         print(
-            f"""
+            """
             Flow complete.
-
-            {self.output_df}
             """
         )
         # write output
-        self.output_df.to_parquet("metaflow_output.parquet", index=False)
         self.output_df["submission_month"] = self.output_df["submission_month"].astype(
             "datetime64[ms]"
         )
         nb_df = pd.read_parquet("nb_output_new.parquet")
-        assert set(nb_df.columns) == set(self.output_df.columns)
+
+        output_for_test = self.output_df.copy()
+        output_for_test = output_for_test.rename(
+            columns={
+                "inventory_forecast": "country_inventory",
+                "expected_impressions": "expected_impressions_last_cap",
+                "no_direct_sales": "revenue_no_ds",
+                "with_direct_sales": "revenue_ds",
+                "country": "live_markets",
+            }
+        )
+        assert set(nb_df.columns) == set(output_for_test)
         pd.testing.assert_frame_equal(
             nb_df.sort_values(["submission_month", "live_markets"]).reset_index(
                 drop=True
             ),
-            self.output_df[nb_df.columns]
+            output_for_test[nb_df.columns]
             .sort_values(["submission_month", "live_markets"])
             .reset_index(drop=True),
             check_exact=False,
             rtol=0.05,
             check_dtype=False,
         )
+
+        self.next(self.end)
+
+    @step
+    def end(self):
+        """Write to BQ."""
+        write_df = pd.melt(
+            self.output_df,
+            value_vars=["no_direct_sales", "with_direct_sales"],
+            id_vars=[
+                "submission_month",
+                "inventory_forecast",
+                "expected_impressions",
+                "country",
+            ],
+            value_name="revenue",
+            var_name="forecast_type",
+        )
+
+        write_df["device"] = "desktop"
+        write_df["forecast_month"] = self.first_day_of_current_month.strftime(
+            "%Y-%m-%d"
+        )
+
+        assert set(write_df.columns) == {
+            "forecast_month",
+            "country",
+            "submission_month",
+            "inventory_forecast",
+            "expected_impressions",
+            "revenue",
+            "device",
+            "forecast_type",
+        }
+        output_info = self.config_data["output"]
+        target_table = f"{output_info['output_database']}.{output_info['output_table']}"
+        job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
+        client = bigquery.Client(project=GCS_PROJECT_NAME)
+
+        client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
 
 
 if __name__ == "__main__":
