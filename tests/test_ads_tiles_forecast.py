@@ -47,42 +47,42 @@ def test_direct_allocation():
         [
             {
                 "submission_month": pd.to_datetime("2024-01"),
-                "live_markets": "DE",
+                "country": "DE",
                 "direct_sales_allocations": 0.6,
             },
             {
                 "submission_month": pd.to_datetime("2024-02"),
-                "live_markets": "DE",
+                "country": "DE",
                 "direct_sales_allocations": 0.6,
             },
             {
                 "submission_month": pd.to_datetime("2024-03"),
-                "live_markets": "DE",
+                "country": "DE",
                 "direct_sales_allocations": 0.6,
             },
             {
                 "submission_month": pd.to_datetime("2024-04"),
-                "live_markets": "DE",
+                "country": "DE",
                 "direct_sales_allocations": 0.3,
             },
             {
                 "submission_month": pd.to_datetime("2024-01"),
-                "live_markets": "US",
+                "country": "US",
                 "direct_sales_allocations": 0.2,
             },
             {
                 "submission_month": pd.to_datetime("2024-02"),
-                "live_markets": "US",
+                "country": "US",
                 "direct_sales_allocations": 0.5,
             },
             {
                 "submission_month": pd.to_datetime("2024-03"),
-                "live_markets": "US",
+                "country": "US",
                 "direct_sales_allocations": 0.5,
             },
             {
                 "submission_month": pd.to_datetime("2024-04"),
-                "live_markets": "US",
+                "country": "US",
                 "direct_sales_allocations": 0.6,
             },
         ]
@@ -90,8 +90,6 @@ def test_direct_allocation():
 
     assert set(expected_df.columns) == set(output_df.columns)
     pd.testing.assert_frame_equal(
-        output_df.sort_values(["live_markets", "submission_month"]).reset_index(
-            drop=True
-        ),
+        output_df.sort_values(["country", "submission_month"]).reset_index(drop=True),
         expected_df[output_df.columns],
     )
