@@ -1,3 +1,4 @@
+# Revenue per Mille, agreed contractually with Admarketplace.
 RPM:
   AU: 0.09
   BR: 0.06
@@ -12,6 +13,14 @@ RPM:
   MX: 0.19
   US: 0.57
 
+# list of direct allocation time windows
+# each element in the list is a timeframe
+# for the coutries specified in markets 
+# for which the fraction in allocation is sent
+# to Ad Marketplace.  start_month and end_month
+# specify the start and end of the time window inclusively
+# Both are optional, and the earliest and latest values
+# in the data are used to replace them respectively if left out
 direct_allocations:
   - markets:
       - DE
@@ -34,6 +43,8 @@ direct_allocations:
     allocation: .9
     start_month: 2025-02
 
+# specify the output database and table
+# to write the data to
 output:
   output_database: jsnyder
   output_table: amp_rpm_forecasts
