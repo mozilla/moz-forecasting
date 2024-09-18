@@ -29,10 +29,15 @@ One nice feature of metaflow is that a specific step can be configured to run in
 
 ## Development
 ### Tests
-TODO
+Tests can be found in the `tests` directory and run with `uv run pytest`
+
+### Linting
+Linting is done via ruff.  In the CI it is currently pinned to version 0.6.5.  It does not need to be added as a dependency to the project and can be run as a tool via `uv ruff@0.6.5 check` and `uv ruff@0.6.5 format`
+
+Note that docstrings are included in the rules and must be in numpy format.
 
 ### CI
-TODO
+Linting and Testing is run via circleci
 
 ### Docker
 TODO: move this to CI
