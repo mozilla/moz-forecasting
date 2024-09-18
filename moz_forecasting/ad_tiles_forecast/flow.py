@@ -198,16 +198,16 @@ class AdTilesForecastFlow(FlowSpec):
             AVG(tmp_kpi_forecasts.value ) AS cdau
         FROM tmp_kpi_forecasts
         WHERE (
-            ((tmp_kpi_forecasts.measure = 'observed')  \
+            ((tmp_kpi_forecasts.measure = 'observed')
                 AND (tmp_kpi_forecasts.submission_date >= DATE('{observed_start_date}'))
-                AND (tmp_kpi_forecasts.submission_date < DATE('{observed_end_date}'))))
+                AND (tmp_kpi_forecasts.submission_date < DATE('{observed_end_date}')))
             OR
-            (tmp_kpi_forecasts.measure = 'p50'
-                AND (tmp_kpi_forecasts.submission_date >= DATE('{forecast_date_start}')
-                AND (tmp_kpi_forecasts.submission_date) <= DATE('{forecast_date_end}')))
+            ((tmp_kpi_forecasts.measure = 'p50')
+                AND (tmp_kpi_forecasts.submission_date >= DATE('{forecast_date_start}'))
+                AND (tmp_kpi_forecasts.submission_date <= DATE('{forecast_date_end}')))
             )
-        AND (tmp_kpi_forecasts.aggregation_period ) = 'month'
-        AND (tmp_kpi_forecasts.metric_alias ) LIKE 'desktop_dau'
+        AND tmp_kpi_forecasts.aggregation_period = 'month'
+        AND tmp_kpi_forecasts.metric_alias LIKE 'desktop_dau'
         GROUP BY
             1
         HAVING cdau IS NOT NULL
