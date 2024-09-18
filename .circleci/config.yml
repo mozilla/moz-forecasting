@@ -39,8 +39,8 @@ jobs:
     steps:
       - checkout
       - uv_setup
-      - run: uvx ruff check
-      - run: uvx ruff format
+      - run: uvx ruff@0.6.5 check
+      - run: uvx ruff@0.6.5 format
 
 workflows:
   pr_checks:
