@@ -15,7 +15,7 @@ RPM:
 
 # list of direct allocation time windows
 # each element in the list is a timeframe
-# for the coutries specified in markets 
+# for the countries specified in markets 
 # for which the fraction in allocation is sent
 # to Ad Marketplace.  start_month and end_month
 # specify the start and end of the time window inclusively
