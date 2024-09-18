@@ -1,10 +1,13 @@
-import pytest
+"""Testing for ad_tiles_forecast."""
+
 import pandas as pd
+import pytest
 
 from moz_forecasting.ad_tiles_forecast.flow import get_direct_allocation_df
 
 
 def test_direct_allocation_exception():
+    """Test get_direct_allocation_df when allocation goes about 100%."""
     config_dict = [
         {"markets": ["US"], "allocation": 0.5},
         {"markets": ["US"], "allocation": 0.6},
@@ -21,6 +24,7 @@ def test_direct_allocation_exception():
 
 
 def test_direct_allocation():
+    """Test get_direct_allocation_df with normal inputs."""
     config_dict = [
         {"markets": ["US", "DE"], "allocation": 0.2},
         {"markets": ["US"], "allocation": 0.3, "start_month": "2024-02"},

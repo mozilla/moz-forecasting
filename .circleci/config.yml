@@ -32,10 +32,18 @@ jobs:
     steps:
       - checkout
       - uv_setup
-      - run: ls
       - run: uv run pytest
+  linting:
+    docker:
+      - image: cimg/python:3.10 # the primary container, where your job's commands are run
+    steps:
+      - checkout
+      - uv_setup
+      - run: uvx ruff check
+      - run: uvx ruff format
 
 workflows:
-  my-workflow:
+  pr_checks:
     jobs:
       - pytest
+      - linting

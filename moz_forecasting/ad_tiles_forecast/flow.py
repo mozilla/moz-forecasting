@@ -1,15 +1,16 @@
+"""Flow for the Ad Tiles Forecast."""
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 from datetime import datetime, timedelta
 
-from metaflow import FlowSpec, step, project, IncludeFile
-from google.cloud import bigquery
-import pandas as pd
 import numpy as np
-from dateutil.relativedelta import relativedelta
+import pandas as pd
 import yaml
+from dateutil.relativedelta import relativedelta
+from google.cloud import bigquery
+from metaflow import FlowSpec, IncludeFile, project, step
 
 GCS_PROJECT_NAME = "moz-fx-data-bq-data-science"
 GCS_BUCKET_NAME = "bucket-name-here"
@@ -18,7 +19,9 @@ GCS_BUCKET_NAME = "bucket-name-here"
 def get_direct_allocation_df(
     allocation_config: list, min_month: pd.Timestamp, max_month: pd.Timestamp
 ) -> pd.DataFrame:
-    """function to generate a dataframe where each record represents a
+    """Generate dataframe for direct allocation.
+
+    Creates a dataframe where each record represents a
         single month and country, with the cumulative direct allocation
         in the "direct_sales_allocations" column
 
@@ -33,10 +36,12 @@ def get_direct_allocation_df(
             of this function will be joined to, acts as the ending month (inclusive) for
             a segment when end_month is not set
 
-    Raises:
+    Raises
+    ------
         ValueError: if the allocation is >100% for a given record an error is raised
 
-    Returns:
+    Returns
+    -------
         pd.DataFrame: dataframe containing direct allocation information for each
             country and month specified in the allocation_config
     """
@@ -88,9 +93,7 @@ def get_direct_allocation_df(
 
 @project(name="ad_tiles_forecast")
 class AdTilesForecastFlow(FlowSpec):
-    """
-    Flow for ads tiles forecasting
-    """
+    """Flow for ads tiles forecasting."""
 
     config = IncludeFile(
         name="config",
@@ -128,9 +131,7 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def get_tile_data(self):
-        """
-        retrieve tile impressions
-        """
+        """Retrieve tile impressions."""
         tile_data_query = f"SELECT * FROM `{self.tile_data_table}`"
         client = bigquery.Client(project=GCS_PROJECT_NAME)
         hist_inventory = client.query(tile_data_query).to_dataframe()
@@ -158,7 +159,7 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def get_kpi_forecast(self):
-        """Get KPI forecast data"""
+        """Get KPI forecast data."""
         forecast_date_start = self.observed_end_date.strftime("%Y-%m-%d")
         forecast_date_end_dt = self.observed_end_date.replace(day=1) + relativedelta(
             months=18
@@ -178,20 +179,32 @@ class AdTilesForecastFlow(FlowSpec):
                     metric_hub_slug,
                     MAX(forecast_predicted_at) AS forecast_predicted_at
                 FROM `moz-fx-data-shared-prod.telemetry_derived.kpi_forecasts_v0`
-                GROUP BY aggregation_period, metric_alias, metric_hub_app_name, metric_hub_slug
+                GROUP BY aggregation_period,
+                    metric_alias,
+                    metric_hub_app_name,
+                    metric_hub_slug
             ),
             tmp_kpi_forecasts as (
             SELECT forecasts.* EXCEPT(forecast_parameters)
                 FROM `{self.kpi_forecast_table}` AS forecasts
                 JOIN most_recent_forecasts
-            USING(aggregation_period, metric_alias, metric_hub_app_name, metric_hub_slug, forecast_predicted_at)
+            USING(aggregation_period,
+                    metric_alias,
+                    metric_hub_app_name,
+                    metric_hub_slug,
+                    forecast_predicted_at)
             )
         SELECT (tmp_kpi_forecasts.submission_date ) AS submission_month,
             AVG(tmp_kpi_forecasts.value ) AS cdau
         FROM tmp_kpi_forecasts
         WHERE (
-            ((tmp_kpi_forecasts.measure ) = 'observed'  AND (( tmp_kpi_forecasts.submission_date  ) >= (DATE('{observed_start_date}')) AND ( tmp_kpi_forecasts.submission_date  ) < (DATE('{observed_end_date}'))))
-            OR ((tmp_kpi_forecasts.measure ) = 'p50'  AND (( tmp_kpi_forecasts.submission_date  ) >= (DATE('{forecast_date_start}')) AND ( tmp_kpi_forecasts.submission_date  ) <= (DATE('{forecast_date_end}'))))
+            ((tmp_kpi_forecasts.measure = 'observed')  \
+                AND (tmp_kpi_forecasts.submission_date >= DATE('{observed_start_date}'))
+                AND (tmp_kpi_forecasts.submission_date < DATE('{observed_end_date}'))))
+            OR
+            (tmp_kpi_forecasts.measure = 'p50'
+                AND (tmp_kpi_forecasts.submission_date >= DATE('{forecast_date_start}')
+                AND (tmp_kpi_forecasts.submission_date) <= DATE('{forecast_date_end}')))
             )
         AND (tmp_kpi_forecasts.aggregation_period ) = 'month'
         AND (tmp_kpi_forecasts.metric_alias ) LIKE 'desktop_dau'
@@ -211,7 +224,7 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def get_dau_by_country(self):
-        """get dau by country"""
+        """Get dau by country."""
         # get markets from RPM
         live_markets = self.config_data["RPM"].keys()
         live_markets_string = ",".join(f"'{el}'" for el in live_markets)
@@ -224,7 +237,8 @@ class AdTilesForecastFlow(FlowSpec):
         `{self.active_users_aggregates_table}` AS active_users_aggregates
         WHERE
         (app_name ) = 'Firefox Desktop'
-        AND ((( submission_date ) >= ((DATE_ADD(DATE_TRUNC(CURRENT_DATE('UTC'), MONTH), INTERVAL -12 MONTH)))
+        AND ((submission_date >=
+                DATE_ADD(DATE_TRUNC(CURRENT_DATE('UTC'), MONTH), INTERVAL -12 MONTH)
             AND ( submission_date ) < DATE_TRUNC(CURRENT_DATE('UTC'), MONTH)))
         GROUP BY
         1,
@@ -239,8 +253,11 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def join_kpi_forecasts_and_historical_usage(self):
-        """join observed values for dau and dau_by_country to get observed share by market"""
-        # Join KPI forecast and historical usage distribution to get country-level KPI forecast
+        """Get observed share_by_market.
+
+        Join observed values for dau and dau_by_country
+        to get observed share by market.
+        """
         self.kpi_forecast["submission_month"] = pd.to_datetime(
             self.kpi_forecast["submission_month"]
         )
@@ -270,8 +287,13 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def calculate_observed_dau_by_country(self):
-        """Get the mean of the observed share_by_market and inventory_per_country
-        over time by country"""
+        """Create share_by_market and inv_per_client factors.
+
+        share_by_market and inv_per_client are indexed by country.
+        They are obtained by taking the mean of the observed share_by_market
+        and inventory_per_country over time by country
+
+        """
         # Merge country level KPI forecast with inventory data
 
         inventory_observed_data_filter = (
@@ -303,8 +325,12 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def calculate_forecasted_inventory_by_country(self):
-        """merge country averages onto forecast to calculate forecast
-        of the inventory by country"""
+        """Calculate country_inventory.
+
+        This is obtained by merging country averages onto forecast cdau
+        and multiplying on the share_by_market and inv_per_client
+        country-level factors
+        """
         kpi_forecast_future = self.kpi_forecast[
             self.kpi_forecast.submission_month > self.observed_end_date
         ]
@@ -333,7 +359,11 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def add_impression_forecast(self):
-        """Add forecast for expected impressions"""
+        """Add expected_impressions_last_cap.
+
+        This is obtained by multipolying the inventory forecast
+        by the fill rate
+        """
         six_months_before_obs_end = self.observed_end_date - relativedelta(months=6)
         observed_fill_rate_by_country = self.inventory.loc[
             (self.inventory.submission_month <= self.observed_end_date)
@@ -356,7 +386,14 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def account_for_direct_allocations(self):
-        """remove direct sales allocations from impressions forecast"""
+        """Add columns related to direct sales.
+
+        Following columns are added:
+            direct_sales_markets: indicates whether country/month has direct sales
+                "y" for yes and "n" for no
+            direct_sales_allocations: The fraction of impressions allocated AMP
+            expected_impressions_direct_sales: Number of impressions allocated to AMP
+        """
         direct_allocation_df = get_direct_allocation_df(
             self.config_data["direct_allocations"],
             min_month=self.revenue_forecast["submission_month"].min(),
@@ -383,17 +420,16 @@ class AdTilesForecastFlow(FlowSpec):
             * self.revenue_forecast["direct_sales_allocations"]
         )
 
-        # self.revenue_forecast["expected_impressions_direct_sales"] = np.where(
-        #     self.revenue_forecast.direct_sales_markets == "y",
-        #     self.revenue_forecast["expected_impressions_last_cap"]
-        #     * self.revenue_forecast["direct_sales_allocations"],
-        #     self.revenue_forecast["expected_impressions_last_cap"],
-        # )
         self.next(self.forecast_revenue)
 
     @step
     def forecast_revenue(self):
-        """forecast revenue accounting for direct sales"""
+        """Add revenue_ds and renvenue_no_ds columns.
+
+        These correspond to the revenue forecast for AMP
+        when direct sales are remove and the forecast
+        assuming all impressions got to AMP, respectively
+        """
         RPMs = self.config_data["RPM"]
 
         RPM_df = pd.DataFrame(
@@ -429,10 +465,7 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def end(self):
-        """
-        This is the mandatory 'end' step: it prints some helpful information
-        to access the model and the used dataset.
-        """
+        """Check outputs."""
         print(
             f"""
             Flow complete.
