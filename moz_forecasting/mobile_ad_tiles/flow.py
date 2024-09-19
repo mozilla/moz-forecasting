@@ -147,7 +147,8 @@ class MobileAdTilesForecastFlow(FlowSpec):
     @step
     def big_ass_query(self):
         """Big query!."""
-        query = """WITH client_counts AS (
+        forecast_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
+        query = f"""WITH client_counts AS (
                     SELECT
                         country,
                     -- want qualified desktop clients, any mobile clients
@@ -213,7 +214,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         mozdata.telemetry.unified_metrics
                     WHERE
                         mozfun.bits28.active_in_range(days_seen_bits, 0, 1)
-                        AND submission_date >= "2024-09-01" --update accordingly
+                        AND submission_date >= "{forecast_start}"
                         AND sample_id < 10
                     GROUP BY
                         country,
@@ -273,7 +274,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     FROM
                         mozdata.contextual_services.event_aggregates
                     WHERE
-                        submission_date >= "2024-09-01" --update accordingly
+                        submission_date >= "{forecast_start}"
                         AND release_channel = "release"
                         AND event_type = "impression"
                         AND source = "topsites"
@@ -307,7 +308,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     FROM
                         mozdata.contextual_services.event_aggregates
                     WHERE
-                        submission_date >= "2024-09-01" --update accordingly
+                        submission_date >= "{forecast_start}"
                         AND release_channel = "release"
                         AND event_type = "impression"
                         AND source = "suggest"
@@ -368,7 +369,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     USING
                         (client_id)
                     WHERE
-                        submission_date >= "2024-09-01" --update accordingly OLD VALUE: "2023-07-01"
+                        submission_date >= "{forecast_start}"
                     -- then mobile tiles went to default
                     UNION ALL
                     SELECT
@@ -382,7 +383,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         -- don't want Focus apps
                         AND browser_dau.normalized_app_name IN ('Fenix', "Firefox iOS")
                         AND normalized_channel = "release"
-                        AND submission_date >= "2024-09-01" --update accordingly
+                        AND submission_date >= "{forecast_start}"
                         AND (
                         (
                             normalized_app_name = "Fenix"
@@ -404,7 +405,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         -- AND sample_id = 1
                     ),
                     -- total mobile clients per day
-                    mobile_population AS (
+                    population AS (
                     SELECT
                         "sponsored_tiles" AS product,
                         submission_date,
@@ -418,17 +419,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         submission_date,
                         country,
                         device
-                    ),
-                    -- total desktop and mobile clients per day
-                    population AS (
-                    SELECT
-                        product,
-                        submission_date,
-                        country,
-                        device,
-                        clients
-                    FROM
-                        mobile_population
                     ),
                     -- number of clicks by advertiser (and country and user-selected-time-interval)
                     clicks AS (
@@ -455,7 +445,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     FROM
                         mozdata.contextual_services.event_aggregates
                     WHERE
-                        submission_date >= "2024-09-01" --update accordingly
+                        submission_date >= "{forecast_start}"
                         AND release_channel = "release"
                         AND event_type = "click"
                         AND source = "topsites"
@@ -483,7 +473,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     FROM
                         mozdata.contextual_services.event_aggregates
                     WHERE
-                        submission_date >= "2024-09-01" --update accordingly
+                        submission_date >= "{forecast_start}"
                         AND release_channel = "release"
                         AND event_type = "click"
                         AND source = "suggest"
