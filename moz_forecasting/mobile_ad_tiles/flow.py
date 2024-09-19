@@ -129,10 +129,8 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
         mobile_kpi = query_job.to_dataframe()
         mobile_kpi = mobile_kpi[
-            pd.to_datetime(
-                mobile_kpi.automated_kpi_confidence_intervals_submission_month
-            )
-            >= pd.to_datetime("2024-09-01")
+            mobile_kpi.automated_kpi_confidence_intervals_submission_month
+            >= self.first_day_of_current_month.strftime("%Y-%m-%d")
         ]
         final_forecast_month = mobile_kpi[
             "automated_kpi_confidence_intervals_submission_month"
@@ -141,7 +139,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
             mobile_kpi["automated_kpi_confidence_intervals_submission_month"]
             < final_forecast_month
         ]
-        mobile_kpi["merge_key"] = 1
 
         self.mobile_kpi = mobile_kpi
 
@@ -321,95 +318,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         country,
                         device
                     ),
-                    -- number of active clients enrolled in sponsored topsites each day (by country)
-                    desktop_population AS (
-                    -- Sponsored Tiles desktop eligible population
-                    SELECT
-                        "sponsored_tiles" AS product,
-                        submission_date,
-                        country,
-                        "desktop" AS device,
-                        COUNT(DISTINCT client_id) AS clients
-                    FROM
-                        mozdata.telemetry.clients_daily
-                    CROSS JOIN
-                        UNNEST(experiments) AS experiment
-                    WHERE
-                        submission_date >= "2024-09-01" --update accordingly
-                        AND normalized_channel = "release"
-                        AND active_hours_sum > 0
-                        AND scalar_parent_browser_engagement_total_uri_count_sum > 0
-                        AND (
-                        (
-                                --sponsored tiles experiments
-                            experiment.key IN (
-                                    -- experiment end date Aug 10, 2021
-                            "bug-1678683-pref-topsites-launch-phase-3-us-v2-release-83-85",
-                            "bug-1676315-pref-topsites-launch-phase-3-gb-release-83-85",
-                            "bug-1676316-pref-topsites-launch-phase-3-de-release-83-85",
-                            "bug-1682645-pref-topsites-launch-phase3-group2-au-release-84-86",
-                            "bug-1682644-pref-topsites-launch-phase3-group2-ca-release-84-86",
-                            "bug-1682646-pref-topsites-launch-phase3-group2-fr-release-84-86",
-                                    -- experiment end date Dec 14, 2021
-                            "bug-1693420-rollout-sponsored-top-sites-rollout-release-84-100",
-                                    -- experiment end date Jan 25 2022
-                            'bug-1744371-pref-sponsored-tiles-in-japan-experiment-release-92-95'
-                            )
-                            AND experiment.value IN ("treatment-admarketplace", "active")
-                        )
-                        OR (
-                                --sponsored tiles on by default in Fx 92
-                            country IN UNNEST(["AU", "BR", "CA", "DE", "ES", "FR", "GB", "IN", "IT", "MX", "US"])
-                            AND mozfun.norm.truncate_version(app_version, 'major') >= 92
-                            AND submission_date >= "2023-09-07"
-                        )
-                        OR (
-                                -- Japan Tiles not fully released until January 2022 after December rollout
-                            country IN ("JP")
-                            AND mozfun.norm.truncate_version(app_version, 'major') >= 92
-                            AND submission_date >= "2022-01-25"
-                        )
-                        )
-                        AND country IN UNNEST(["AU", "BR", "CA", "DE", "ES", "FR", "GB", "IN", "IT", "JP", "MX", "US"])
-                        -- AND sample_id = 1
-                    GROUP BY
-                        product,
-                        submission_date,
-                        country,
-                        device
-                    UNION ALL
-                    -- Suggest desktop eligible population
-                    SELECT
-                        "suggest" AS product,
-                        submission_date,
-                        country,
-                        "desktop" AS device,
-                        COUNT(DISTINCT client_id) AS clients
-                    FROM
-                        mozdata.telemetry.clients_daily
-                    CROSS JOIN
-                        UNNEST(experiments) AS experiment
-                    WHERE
-                        submission_date >= "2024-09-01" --update accordingly
-                        AND normalized_channel = "release"
-                        AND active_hours_sum > 0
-                        AND scalar_parent_browser_engagement_total_uri_count_sum > 0
-                        AND (
-                                --sponsored tiles experiments
-                        experiment.key IN (
-                                    -- experiment end date expected August - September 2022
-                            "firefox-suggest-enhanced-exposure-phase-1"
-                        )
-                        AND experiment.value IN ("treatment-a")
-                        )
-                        AND country IN UNNEST(["US"])
-                        -- AND sample_id = 1
-                    GROUP BY
-                        product,
-                        submission_date,
-                        country,
-                        device
-                    ),
                     mobile_experiment_clients AS (
                     SELECT
                         client_id
@@ -513,15 +421,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     ),
                     -- total desktop and mobile clients per day
                     population AS (
-                    SELECT
-                        product,
-                        submission_date,
-                        country,
-                        device,
-                        clients
-                    FROM
-                        desktop_population
-                    UNION ALL
                     SELECT
                         product,
                         submission_date,
@@ -697,7 +596,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
             .mean()
             .reset_index()
         )
-        last_comp_month["merge_key"] = 1
         self.last_comp_month = last_comp_month
         self.next(self.get_cpcs)
 
@@ -746,9 +644,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         rev_forecast_assump = pd.merge(
             self.last_comp_month, self.mobile_cpc, how="left", on="country"
         )
-        rev_forecast_dat = pd.merge(
-            rev_forecast_assump, self.mobile_kpi, how="outer", on="merge_key"
-        )
+        rev_forecast_dat = pd.merge(rev_forecast_assump, self.mobile_kpi, how="cross")
 
         rev_forecast_dat = rev_forecast_dat[
             pd.to_datetime(
@@ -847,7 +743,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
     def test(self):
         nb_df = pd.read_parquet("mobile_nb_out.parquet")
         output_for_test = self.rev_forecast_dat.copy()
-        print()
+        nb_df = nb_df.drop(columns="merge_key")
         assert set(nb_df.columns) == set(output_for_test)
         pd.testing.assert_frame_equal(
             nb_df.sort_values(["submission_month", "country"]).reset_index(drop=True),
