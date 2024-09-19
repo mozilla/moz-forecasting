@@ -255,11 +255,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         "sponsored_tiles" AS product,
                         submission_date,
                         country,
-                        CASE
-                        WHEN form_factor = "phone"
-                            THEN "mobile"
-                        ELSE "desktop"
-                        END AS device,
+                        "mobile" as device,
                         SUM(CASE WHEN advertiser = "amazon" THEN user_count ELSE 0 END) / NULLIF(
                         SUM(user_count),
                         0
@@ -275,6 +271,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         mozdata.contextual_services.event_aggregates
                     WHERE
                         submission_date >= "{forecast_start}"
+                        AND form_factor = "phone"
                         AND release_channel = "release"
                         AND event_type = "impression"
                         AND source = "topsites"
@@ -391,11 +388,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         "sponsored_tiles" AS product,
                         submission_date,
                         country,
-                        CASE
-                        WHEN form_factor = "phone"
-                            THEN "mobile"
-                        ELSE "desktop"
-                        END AS device,
+                        "mobile" as device,
                         COALESCE(SUM(CASE WHEN advertiser = "amazon" THEN event_count ELSE 0 END), 0) AS amazon_clicks,
                         COALESCE(
                         SUM(
@@ -411,6 +404,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         mozdata.contextual_services.event_aggregates
                     WHERE
                         submission_date >= "{forecast_start}"
+                        AND form_factor = "phone"
                         AND release_channel = "release"
                         AND event_type = "click"
                         AND source = "topsites"
