@@ -282,59 +282,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         country,
                         device
                     ),
-                    mobile_experiment_clients AS (
-                    SELECT
-                        client_id
-                    FROM
-                        `moz-fx-data-experiments.mozanalysis.enrollments_firefox_android_sponsored_shortcuts_experiment`
-                    WHERE
-                        branch = "treatment-a"
-                    UNION ALL
-                    SELECT
-                        client_id
-                    FROM
-                        `moz-fx-data-experiments.mozanalysis.enrollments_firefox_ios_homepage_experiment_sponsored_shortcuts`
-                    WHERE
-                        branch = "treatment-a"
-                    ),
-                    -- mobile = Sponsored Tiles only
-                    -- total mobile clients per day from each OS
                     daily_mobile_clients AS (
-                    -- experiment clients
-                    SELECT
-                        *
-                    FROM
-                        mobile_experiment_clients
-                    LEFT JOIN
-                        (
-                        SELECT
-                            submission_date,
-                            client_id,
-                            country
-                        FROM
-                            mozdata.telemetry.unified_metrics AS browser_dau
-                        WHERE
-                            mozfun.bits28.active_in_range(browser_dau.days_seen_bits, 0, 1)
-                                -- don't want Focus apps
-                            AND browser_dau.normalized_app_name IN ('Fenix', "Firefox iOS")
-                            AND country IN UNNEST(["US"])
-                            AND normalized_channel = "release"
-                            -- AND sample_id = 1
-                            AND (submission_date BETWEEN "2022-05-10" AND "2022-10-03")
-                            AND (
-                            (normalized_app_name = "Fenix" AND submission_date BETWEEN "2022-05-10" AND "2022-09-19")
-                            OR (
-                                normalized_app_name = "Firefox iOS"
-                                AND (submission_date BETWEEN "2022-06-07" AND "2022-10-03")
-                            )
-                            )
-                        )
-                    USING
-                        (client_id)
-                    WHERE
-                        submission_date >= "{forecast_start}"
-                    -- then mobile tiles went to default
-                    UNION ALL
                     SELECT
                         client_id,
                         submission_date,
