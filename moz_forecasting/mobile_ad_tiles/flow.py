@@ -285,40 +285,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         country,
                         device
                     ),
-                    suggest_percentages AS (
-                    SELECT
-                        "suggest" AS product,
-                        submission_date,
-                        country,
-                        CASE
-                        WHEN form_factor = "phone"
-                            THEN "mobile"
-                        ELSE "desktop"
-                        END AS device,
-                        NULL AS p_amazon,
-                        NULL AS p_other,
-                        SUM(CASE WHEN advertiser = "amazon" THEN user_count ELSE 0 END) AS amazon_dou,
-                        SUM(
-                        CASE
-                            WHEN advertiser NOT IN UNNEST(["amazon", "wikipedia"])
-                            THEN user_count
-                            ELSE 0
-                        END
-                        ) AS other_dou,
-                    FROM
-                        mozdata.contextual_services.event_aggregates
-                    WHERE
-                        submission_date >= "{forecast_start}"
-                        AND release_channel = "release"
-                        AND event_type = "impression"
-                        AND source = "suggest"
-                        AND country IN UNNEST(["US"])
-                    GROUP BY
-                        product,
-                        submission_date,
-                        country,
-                        device
-                    ),
                     mobile_experiment_clients AS (
                     SELECT
                         client_id
@@ -402,7 +368,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
                             )
                         )
                         )
-                        -- AND sample_id = 1
                     ),
                     -- total mobile clients per day
                     population AS (
@@ -455,34 +420,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         submission_date,
                         country,
                         device
-                    UNION ALL
-                    SELECT
-                        "suggest" AS product,
-                        submission_date,
-                        country,
-                        CASE
-                        WHEN form_factor = "phone"
-                            THEN "mobile"
-                        ELSE "desktop"
-                        END AS device,
-                        COALESCE(SUM(CASE WHEN advertiser = "amazon" THEN event_count ELSE 0 END), 0) AS amazon_clicks,
-                        COALESCE(
-                        SUM(CASE WHEN advertiser NOT IN UNNEST(["amazon", "wikipedia"]) THEN event_count ELSE 0 END),
-                        0
-                        ) AS other_clicks
-                    FROM
-                        mozdata.contextual_services.event_aggregates
-                    WHERE
-                        submission_date >= "{forecast_start}"
-                        AND release_channel = "release"
-                        AND event_type = "click"
-                        AND source = "suggest"
-                        AND country IN UNNEST(["US"])
-                    GROUP BY
-                        product,
-                        submission_date,
-                        country,
-                        device
                     )
                     -- number of clicks and client-days-of-use by advertiser (and country and month)
                     -- daily AS (
@@ -497,46 +434,18 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     COALESCE(population.clients, 0) AS clients,
                     (CASE WHEN product = "sponsored_tiles" THEN pe.p_amazon ELSE NULL END) AS p_amazon,
                     (CASE WHEN product = "sponsored_tiles" THEN pe.p_other ELSE NULL END) AS p_other,
-                    (
-                        CASE
-                        WHEN product = "sponsored_tiles"
-                            THEN COALESCE(population.clients * pe.p_amazon, 0)
-                        ELSE suggest_percentages.amazon_dou
-                        END
-                    ) AS amazon_clients,
-                    (
-                        CASE
-                        WHEN product = "sponsored_tiles"
-                            THEN COALESCE(population.clients * pe.p_other, 0)
-                        ELSE suggest_percentages.other_dou
-                        END
-                    ) AS other_clients,
+                    COALESCE(population.clients * pe.p_amazon, 0) AS amazon_clients,
+                    COALESCE(population.clients * pe.p_other, 0) AS other_clients,
                         -- clicks are directly tagged with advertiser
                     COALESCE(c.amazon_clicks, 0) AS amazon_clicks,
                     COALESCE(c.other_clicks, 0) AS other_clicks,
                         -- clicks per client-day-of-use
-                    (
-                        CASE
-                        WHEN product = "sponsored_tiles"
-                            THEN c.amazon_clicks / NULLIF((population.clients * pe.p_amazon), 0)
-                        ELSE c.amazon_clicks / NULLIF(suggest_percentages.amazon_dou, 0)
-                        END
-                    ) AS amazon_clicks_per_client,
-                    (
-                        CASE
-                        WHEN product = "sponsored_tiles"
-                            THEN c.other_clicks / NULLIF((population.clients * pe.p_other), 0)
-                        ELSE c.other_clicks / NULLIF(suggest_percentages.other_dou, 0)
-                        END
-                    ) AS other_clicks_per_client
+                    c.amazon_clicks / NULLIF((population.clients * pe.p_amazon), 0) AS amazon_clicks_per_client,
+                    c.other_clicks / NULLIF((population.clients * pe.p_other), 0) AS other_clicks_per_client
                     FROM
                     population
                     LEFT JOIN
                     tiles_percentages pe
-                    USING
-                    (product, submission_date, country, device)
-                    LEFT JOIN
-                    suggest_percentages
                     USING
                     (product, submission_date, country, device)
                     LEFT JOIN
