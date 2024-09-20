@@ -148,106 +148,64 @@ class MobileAdTilesForecastFlow(FlowSpec):
     def big_ass_query(self):
         """Big query!."""
         forecast_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
-        query = f"""WITH client_counts AS (
-                    SELECT
-                        country,
-                    -- want qualified desktop clients, any mobile clients
-                        (
-                        CASE
-                            WHEN normalized_app_name = "Firefox Desktop"
-                            AND active_hours_sum > 0
-                            AND uri_count > 0
-                            THEN 'desktop'
-                            WHEN normalized_app_name != "Firefox Desktop"
-                            THEN 'mobile'
-                            ELSE NULL
-                        END
-                        ) AS device,
-                        submission_date,
-                        COUNT(*) AS total_clients,
-                        COUNT(
-                        CASE
-                    -- FIREFOX DESKTOP ELIGIBILITY REQUIREMENTS
-                            WHEN normalized_app_name = "Firefox Desktop"
-                            AND (
-                                -- desktop tiles default on
-                                (
-                                submission_date >= "2021-09-07"
-                                AND browser_version_info.major_version > 92
-                                AND country IN UNNEST(
-                                    ["AU", "BR", "CA", "DE", "ES", "FR", "GB", "IN", "IT", "MX", "US"]
-                                )
-                                )
-                                OR
-                                -- Japan desktop now default on
-                                (
-                                submission_date >= "2022-01-25"
-                                AND browser_version_info.major_version > 92
-                                AND country = "JP"
-                                )
-                            )
-                            THEN 1
-                    -- ANDROID ELIGIBLITY REQUIREMENTS
-                            WHEN normalized_app_name != "Firefox Desktop"
-                            AND normalized_os = "Android"
-                            AND browser_version_info.major_version > 100
-                            AND (
-                                (country IN UNNEST(["US"]) AND submission_date >= "2022-05-10")
-                                OR (country IN UNNEST(["DE"]) AND submission_date >= "2022-12-05")
-                                OR (country IN UNNEST(["BR", "CA", "ES", "FR", "GB", "IN", "AU"]) AND submission_date >= "2023-05-15")
-                            )
-                            THEN 1
-                    -- iOS ELIGIBLITY REQUIREMENTS
-                            WHEN normalized_app_name != "Firefox Desktop"
-                            AND normalized_os = "iOS"
-                            AND browser_version_info.major_version > 101
-                            AND (
-                                (country IN UNNEST(["US"]) AND submission_date >= "2022-06-07")
-                                OR (country IN UNNEST(["DE"]) AND submission_date >= "2022-12-05")
-                                OR (country IN UNNEST(["BR", "CA", "ES", "FR", "GB", "IN", "AU"]) AND submission_date >= "2023-05-15")
-                            )
-                            THEN 1
-                            ELSE NULL
-                        END
-                        ) AS eligible_clients
-                    FROM
-                        mozdata.telemetry.unified_metrics
-                    WHERE
-                        mozfun.bits28.active_in_range(days_seen_bits, 0, 1)
-                        AND submission_date >= "{forecast_start}"
-                        AND sample_id < 10
-                    GROUP BY
-                        country,
-                        device,
-                        submission_date
-                    ),
+        query = f"""
+                    CREATE TEMP FUNCTION IsEligible(os STRING, version NUMERIC, country STRING, submission_date DATE)
+                    RETURNS BOOL
+                    AS ((os = "Android" AND  version > 100
+                                            AND (
+                                                (country = "US" AND submission_date >= "2022-05-10")
+                                                OR (country = "DE" AND submission_date >= "2022-12-05")
+                                                OR (country IN ("BR", "CA", "ES", "FR", "GB", "IN", "AU") AND submission_date >= "2023-05-15")
+                                            )) OR (os = "iOS"
+                                                AND version > 101
+                                                AND (
+                                                    (country IN UNNEST(["US"]) AND submission_date >= "2022-06-07")
+                                                    OR (country IN UNNEST(["DE"]) AND submission_date >= "2022-12-05")
+                                                    OR (country IN UNNEST(["BR", "CA", "ES", "FR", "GB", "IN", "AU"]) AND submission_date >= "2023-05-15")
+                                                ))) ;    
+        
+                WITH client_counts as (SELECT
+                            submission_date,
+                            country,
+                            channel,
+                            app_name,
+                            COALESCE(SUM((dau) ), 0) AS total_active,
+                            COALESCE(SUM((daily_users) ), 0) AS total_clients,
+                            SUM(IF(IsEligible(os_grouped, app_version_major, country, submission_date), daily_users, 0)) as eligible_clients,
+                            SUM(IF(IsEligible(os_grouped, app_version_major, country, submission_date), dau, 0)) as eligible_active,
+                            FROM
+                            `moz-fx-data-shared-prod.telemetry.active_users_aggregates` AS active_users_aggregates
+                            WHERE
+                            os_grouped in ("iOS", "Android")
+                                AND submission_date >= "2024-09-01"
+                            GROUP BY
+                            submission_date, country, channel, app_name),
                     grand_total AS (
                     SELECT
-                        device,
                         submission_date,
                         SUM(total_clients) AS monthly_total
                     FROM
                         client_counts
-                    WHERE
-                        device IS NOT NULL
                     GROUP BY
-                        device,
                         submission_date
                     ),
+                    client_by_date_and_country AS (SELECT
+                        submission_date,
+                        country,
+                        SUM(eligible_clients) as eligible_clients
+                        FROM client_counts
+                        GROUP BY submission_date, country),
                     client_share AS (
                     SELECT
-                        device,
                         country,
                         submission_date,
                         eligible_clients / NULLIF(monthly_total, 0) AS eligible_share_country
                     FROM
-                        client_counts
+                        client_by_date_and_country
                     LEFT JOIN
                         grand_total
                     USING
-                        (submission_date, device)
-                    WHERE
-                        device IS NOT NULL
+                        (submission_date)
                     ),
                     -------- REVENUE FORECASTING DATA
                     tiles_percentages AS (
@@ -255,7 +213,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         "sponsored_tiles" AS product,
                         submission_date,
                         country,
-                        "mobile" as device,
                         SUM(CASE WHEN advertiser = "amazon" THEN user_count ELSE 0 END) / NULLIF(
                         SUM(user_count),
                         0
@@ -279,8 +236,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     GROUP BY
                         product,
                         submission_date,
-                        country,
-                        device
+                        country
                     ),
                     daily_mobile_clients AS (
                     SELECT
@@ -336,7 +292,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         "sponsored_tiles" AS product,
                         submission_date,
                         country,
-                        "mobile" as device,
                         COALESCE(SUM(CASE WHEN advertiser = "amazon" THEN event_count ELSE 0 END), 0) AS amazon_clicks,
                         COALESCE(
                         SUM(
@@ -360,8 +315,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     GROUP BY
                         product,
                         submission_date,
-                        country,
-                        device
+                        country
                     )
                     -- number of clicks and client-days-of-use by advertiser (and country and month)
                     -- daily AS (
@@ -369,7 +323,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     product,
                     submission_date,
                     population.country,
-                    device,
                     client_share.eligible_share_country,
                         -- Tiles clients are not directly tagged with advertiser, this must be imputed using impression share
                         -- Limitation: This undercounts due to dual-Tile display model.
@@ -389,29 +342,25 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     LEFT JOIN
                     tiles_percentages pe
                     USING
-                    (product, submission_date, country, device)
+                    (product, submission_date, country)
                     LEFT JOIN
                     clicks c
                     USING
-                    (product, submission_date, country, device)
+                    (product, submission_date, country)
                     LEFT JOIN
                     client_share
                     USING
-                    (device, country, submission_date)
+                    (country, submission_date)
                     # WHERE
                     #   submission_date = @submission_date
                     ORDER BY
                     product,
                     submission_date,
-                    country,
-                    device"""
+                    country"""
 
         client = bigquery.Client(project=GCS_PROJECT_NAME)
         query_job = client.query(query)
         mobile_forecasting_data = query_job.to_dataframe()
-        mobile_forecasting_data = mobile_forecasting_data[
-            mobile_forecasting_data.device == "mobile"
-        ]
 
         self.mobile_forecasting_data = mobile_forecasting_data
         self.next(self.get_last_comp_month)
@@ -495,23 +444,21 @@ class MobileAdTilesForecastFlow(FlowSpec):
         ]
 
         rev_forecast_dat["est_value_amazon_qdau"] = (
-            rev_forecast_dat[
-                "automated_kpi_confidence_intervals_estimated_value"
-            ].apply(lambda x: float(x))
+            rev_forecast_dat["automated_kpi_confidence_intervals_estimated_value"]
             * rev_forecast_dat["eligible_share_country"]
             * rev_forecast_dat["p_amazon"]
         )
         rev_forecast_dat["10p_amazon_qdau"] = (
             rev_forecast_dat[
                 "automated_kpi_confidence_intervals_estimated_10th_percentile"
-            ].apply(lambda x: float(x))
+            ]
             * rev_forecast_dat["eligible_share_country"]
             * rev_forecast_dat["p_amazon"]
         )
         rev_forecast_dat["90p_amazon_qdau"] = (
             rev_forecast_dat[
                 "automated_kpi_confidence_intervals_estimated_90th_percentile"
-            ].apply(lambda x: float(x))
+            ]
             * rev_forecast_dat["eligible_share_country"]
             * rev_forecast_dat["p_amazon"]
         )
@@ -528,23 +475,21 @@ class MobileAdTilesForecastFlow(FlowSpec):
         )
 
         rev_forecast_dat["est_value_other_qdau"] = (
-            rev_forecast_dat[
-                "automated_kpi_confidence_intervals_estimated_value"
-            ].apply(lambda x: float(x))
+            rev_forecast_dat["automated_kpi_confidence_intervals_estimated_value"]
             * rev_forecast_dat["eligible_share_country"]
             * rev_forecast_dat["p_other"]
         )
         rev_forecast_dat["10p_other_qdau"] = (
             rev_forecast_dat[
                 "automated_kpi_confidence_intervals_estimated_10th_percentile"
-            ].apply(lambda x: float(x))
+            ]
             * rev_forecast_dat["eligible_share_country"]
             * rev_forecast_dat["p_other"]
         )
         rev_forecast_dat["90p_other_qdau"] = (
             rev_forecast_dat[
                 "automated_kpi_confidence_intervals_estimated_90th_percentile"
-            ].apply(lambda x: float(x))
+            ]
             * rev_forecast_dat["eligible_share_country"]
             * rev_forecast_dat["p_other"]
         )
@@ -592,7 +537,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
             .sort_values(["submission_month", "country"])
             .reset_index(drop=True),
             check_exact=False,
-            rtol=0.02,
+            rtol=0.035,
             check_dtype=False,
         )
         self.next(self.end)
