@@ -153,13 +153,13 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     RETURNS BOOL
                     AS ((os = "Android" AND  version > 100
                                             AND (
-                                                (country = "US" AND submission_date >= "2022-05-10")
+                                                (country = "US" AND submission_date >= "2022-09-20")
                                                 OR (country = "DE" AND submission_date >= "2022-12-05")
                                                 OR (country IN ("BR", "CA", "ES", "FR", "GB", "IN", "AU") AND submission_date >= "2023-05-15")
                                             )) OR (os = "iOS"
                                                 AND version > 101
                                                 AND (
-                                                    (country IN UNNEST(["US"]) AND submission_date >= "2022-06-07")
+                                                    (country IN UNNEST(["US"]) AND submission_date >= "2022-10-04")
                                                     OR (country IN UNNEST(["DE"]) AND submission_date >= "2022-12-05")
                                                     OR (country IN UNNEST(["BR", "CA", "ES", "FR", "GB", "IN", "AU"]) AND submission_date >= "2023-05-15")
                                                 ))) ;    
@@ -171,9 +171,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                             app_name,
                             COALESCE(SUM((dau) ), 0) AS total_active,
                             COALESCE(SUM((daily_users) ), 0) AS total_clients,
-                            SUM(IF(IsEligible(os_grouped, app_version_major, country, submission_date), daily_users, 0)) as eligible_clients,
-                            SUM(IF(IsEligible(os_grouped, app_version_major, country, submission_date), dau, 0)) as eligible_active,
-                            FROM
+                            SUM(IF(IsEligible(os_grouped, app_version_major, country, submission_date), daily_users, 0)) as eligible_clients,                            FROM
                             `moz-fx-data-shared-prod.telemetry.active_users_aggregates` AS active_users_aggregates
                             WHERE
                             os_grouped in ("iOS", "Android")
@@ -238,53 +236,22 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         submission_date,
                         country
                     ),
-                    daily_mobile_clients AS (
-                    SELECT
-                        client_id,
-                        submission_date,
-                        country
-                    FROM
-                        mozdata.telemetry.unified_metrics AS browser_dau
-                    WHERE
-                        mozfun.bits28.active_in_range(browser_dau.days_seen_bits, 0, 1)
-                        -- don't want Focus apps
-                        AND browser_dau.normalized_app_name IN ('Fenix', "Firefox iOS")
-                        AND normalized_channel = "release"
-                        AND submission_date >= "{forecast_start}"
-                        AND (
-                        (
-                            normalized_app_name = "Fenix"
-                            AND (
-                            (submission_date >= "2022-09-20" AND country IN UNNEST(["US"]))
-                            OR (submission_date >= "2022-12-05" AND country IN UNNEST(["DE"]))
-                            OR (country IN UNNEST(["BR", "CA", "ES", "FR", "GB", "IN", "AU"]) AND submission_date >= "2023-05-15")
-                            )
-                        )
-                        OR (
-                            normalized_app_name = "Firefox iOS"
-                            AND (
-                            (submission_date >= "2022-10-04" AND country IN UNNEST(["US"]))
-                            OR (submission_date >= "2022-12-05" AND country IN UNNEST(["DE"]))
-                            OR (country IN UNNEST(["BR", "CA", "ES", "FR", "GB", "IN", "AU"]) AND submission_date >= "2023-05-15")
-                            )
-                        )
-                        )
-                    ),
-                    -- total mobile clients per day
                     population AS (
                     SELECT
                         "sponsored_tiles" AS product,
                         submission_date,
                         country,
-                        "mobile" AS device,
-                        COUNT(*) AS clients
+                        SUM(eligible_clients) AS clients
                     FROM
-                        daily_mobile_clients
+                        client_counts
+                    WHERE
+                        app_name in ('Fenix', 'Firefox iOS')
+                        AND country IN UNNEST(["AU", "BR", "CA", "DE", "ES", "FR", "GB", "IN", "US"])
+                        AND channel = "release"
                     GROUP BY
                         product,
                         submission_date,
-                        country,
-                        device
+                        country
                     ),
                     -- number of clicks by advertiser (and country and user-selected-time-interval)
                     clicks AS (
