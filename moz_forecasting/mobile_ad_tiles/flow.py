@@ -149,35 +149,50 @@ class MobileAdTilesForecastFlow(FlowSpec):
         """Big query!."""
         forecast_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
         query = f"""
-                    CREATE TEMP FUNCTION IsEligible(os STRING, version NUMERIC, country STRING, submission_date DATE)
+                    CREATE TEMP FUNCTION IsEligible(os STRING,
+                                                    version NUMERIC,
+                                                    country STRING,
+                                                    submission_date DATE)
                     RETURNS BOOL
-                    AS ((os = "Android" AND  version > 100
-                                            AND (
-                                                (country = "US" AND submission_date >= "2022-09-20")
-                                                OR (country = "DE" AND submission_date >= "2022-12-05")
-                                                OR (country IN ("BR", "CA", "ES", "FR", "GB", "IN", "AU") AND submission_date >= "2023-05-15")
-                                            )) OR (os = "iOS"
-                                                AND version > 101
-                                                AND (
-                                                    (country IN UNNEST(["US"]) AND submission_date >= "2022-10-04")
-                                                    OR (country IN UNNEST(["DE"]) AND submission_date >= "2022-12-05")
-                                                    OR (country IN UNNEST(["BR", "CA", "ES", "FR", "GB", "IN", "AU"]) AND submission_date >= "2023-05-15")
-                                                ))) ;    
-        
+                    AS ((os = "Android"
+                            AND  version > 100
+                            AND (
+                                (country = "US" AND submission_date >= "2022-09-20")
+                                OR (country = "DE" AND submission_date >= "2022-12-05")
+                                OR (country IN ("BR", "CA", "ES",
+                                                    "FR", "GB", "IN", "AU")
+                                        AND submission_date >= "2023-05-15")))
+                        OR (os = "iOS"
+                            AND version > 101
+                            AND (
+                                (country = "US"
+                                    AND submission_date >= "2022-10-04")
+                                OR (country = "DE"
+                                    AND submission_date >= "2022-12-05")
+                                OR (country IN ("BR", "CA", "ES",
+                                                    "FR", "GB", "IN", "AU")
+                                    AND submission_date >= "2023-05-15")
+                            ))) ;
                 WITH client_counts as (SELECT
-                            submission_date,
-                            country,
-                            channel,
-                            app_name,
-                            COALESCE(SUM((dau) ), 0) AS total_active,
-                            COALESCE(SUM((daily_users) ), 0) AS total_clients,
-                            SUM(IF(IsEligible(os_grouped, app_version_major, country, submission_date), daily_users, 0)) as eligible_clients,                            FROM
-                            `moz-fx-data-shared-prod.telemetry.active_users_aggregates` AS active_users_aggregates
-                            WHERE
-                            os_grouped in ("iOS", "Android")
-                                AND submission_date >= "2024-09-01"
-                            GROUP BY
-                            submission_date, country, channel, app_name),
+                        submission_date,
+                        country,
+                        channel,
+                        app_name,
+                        COALESCE(SUM((dau) ), 0) AS total_active,
+                        COALESCE(SUM((daily_users) ), 0) AS total_clients,
+                        SUM(IF(IsEligible(os_grouped,
+                                            app_version_major,
+                                            country,
+                                            submission_date),
+                                        daily_users,
+                                        0)) as eligible_clients,
+                        FROM `{self.active_users_aggregates_table}`
+                            AS active_users_aggregates
+                        WHERE
+                        os_grouped in ("iOS", "Android")
+                            AND submission_date >= "2024-09-01"
+                        GROUP BY
+                        submission_date, country, channel, app_name),
                     grand_total AS (
                     SELECT
                         submission_date,
@@ -197,7 +212,8 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     SELECT
                         country,
                         submission_date,
-                        eligible_clients / NULLIF(monthly_total, 0) AS eligible_share_country
+                        COALESCE(eligible_clients/monthly_total)
+                            AS eligible_share_country
                     FROM
                         client_by_date_and_country
                     LEFT JOIN
@@ -205,23 +221,19 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     USING
                         (submission_date)
                     ),
-                    -------- REVENUE FORECASTING DATA
+            -------- REVENUE FORECASTING DATA
                     tiles_percentages AS (
                     SELECT
                         "sponsored_tiles" AS product,
                         submission_date,
                         country,
-                        SUM(CASE WHEN advertiser = "amazon" THEN user_count ELSE 0 END) / NULLIF(
-                        SUM(user_count),
-                        0
-                        ) AS p_amazon,
-                        SUM(
-                        CASE
-                            WHEN advertiser NOT IN UNNEST(["amazon", "o=45:a", "yandex"])
-                            THEN user_count
-                            ELSE 0
-                        END
-                        ) / NULLIF(SUM(user_count), 0) AS p_other
+                        COALESCE(SUM(IF(advertiser = "amazon",
+                                            user_count,
+                                            0))/SUM(user_count)) AS p_amazon,
+                        COALESCE(
+                            SUM(IF(advertiser NOT IN ("amazon", "o=45:a", "yandex"),
+                                            user_count,
+                                            0))/SUM(user_count)) AS p_other
                     FROM
                         mozdata.contextual_services.event_aggregates
                     WHERE
@@ -230,7 +242,18 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         AND release_channel = "release"
                         AND event_type = "impression"
                         AND source = "topsites"
-                        AND country IN UNNEST(["AU", "BR", "CA", "DE", "ES", "FR", "GB", "IN", "IT", "JP", "MX", "US"])
+                        AND country IN ("AU",
+                                        "BR",
+                                        "CA",
+                                        "DE",
+                                        "ES",
+                                        "FR",
+                                        "GB",
+                                        "IN",
+                                        "IT",
+                                        "JP",
+                                        "MX",
+                                        "US")
                     GROUP BY
                         product,
                         submission_date,
@@ -246,30 +269,37 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         client_counts
                     WHERE
                         app_name in ('Fenix', 'Firefox iOS')
-                        AND country IN UNNEST(["AU", "BR", "CA", "DE", "ES", "FR", "GB", "IN", "US"])
+                        AND country IN ("AU",
+                                        "BR",
+                                        "CA",
+                                        "DE",
+                                        "ES",
+                                        "FR",
+                                        "GB",
+                                        "IN",
+                                        "US")
                         AND channel = "release"
                     GROUP BY
                         product,
                         submission_date,
                         country
                     ),
-                    -- number of clicks by advertiser (and country and user-selected-time-interval)
+        -- number of clicks by advertiser (and country and user-selected-time-interval)
                     clicks AS (
                     SELECT
                         "sponsored_tiles" AS product,
                         submission_date,
                         country,
-                        COALESCE(SUM(CASE WHEN advertiser = "amazon" THEN event_count ELSE 0 END), 0) AS amazon_clicks,
-                        COALESCE(
-                        SUM(
-                            CASE
-                            WHEN advertiser NOT IN UNNEST(["amazon", "o=45:a", "yandex"])
-                                THEN event_count
-                            ELSE 0
-                            END
-                        ),
-                        0
-                        ) AS other_clicks
+                        COALESCE(SUM(
+                            IF(advertiser = "amazon",
+                                event_count,
+                                0)),
+                            0) AS amazon_clicks,
+                        COALESCE(SUM(
+                            IF(advertiser NOT IN ("amazon", "o=45:a", "yandex"),
+                                event_count,
+                                0)),
+                            0) AS other_clicks
                     FROM
                         mozdata.contextual_services.event_aggregates
                     WHERE
@@ -278,32 +308,45 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         AND release_channel = "release"
                         AND event_type = "click"
                         AND source = "topsites"
-                        AND country IN UNNEST(["AU", "BR", "CA", "DE", "ES", "FR", "GB", "IN", "IT", "JP", "MX", "US"])
+                        AND country IN ("AU",
+                                        "BR",
+                                        "CA",
+                                        "DE",
+                                        "ES",
+                                        "FR",
+                                        "GB",
+                                        "IN",
+                                        "IT",
+                                        "JP",
+                                        "MX",
+                                        "US")
                     GROUP BY
                         product,
                         submission_date,
                         country
                     )
-                    -- number of clicks and client-days-of-use by advertiser (and country and month)
-                    -- daily AS (
+        -- number of clicks and client-days-of-use by advertiser (and country and month)
                     SELECT
                     product,
                     submission_date,
                     population.country,
                     client_share.eligible_share_country,
-                        -- Tiles clients are not directly tagged with advertiser, this must be imputed using impression share
-                        -- Limitation: This undercounts due to dual-Tile display model.
+        -- Tiles clients are not directly tagged with advertiser
+        -- this must be imputed using impression share
+        -- Limitation: This undercounts due to dual-Tile display model.
                     COALESCE(population.clients, 0) AS clients,
-                    (CASE WHEN product = "sponsored_tiles" THEN pe.p_amazon ELSE NULL END) AS p_amazon,
-                    (CASE WHEN product = "sponsored_tiles" THEN pe.p_other ELSE NULL END) AS p_other,
+                    IF(product = "sponsored_tiles",pe.p_amazon,NULL) AS p_amazon,
+                    IF(product = "sponsored_tiles",pe.p_other, NULL) AS p_other,
                     COALESCE(population.clients * pe.p_amazon, 0) AS amazon_clients,
                     COALESCE(population.clients * pe.p_other, 0) AS other_clients,
-                        -- clicks are directly tagged with advertiser
+        -- clicks are directly tagged with advertiser
                     COALESCE(c.amazon_clicks, 0) AS amazon_clicks,
                     COALESCE(c.other_clicks, 0) AS other_clicks,
-                        -- clicks per client-day-of-use
-                    c.amazon_clicks / NULLIF((population.clients * pe.p_amazon), 0) AS amazon_clicks_per_client,
-                    c.other_clicks / NULLIF((population.clients * pe.p_other), 0) AS other_clicks_per_client
+        -- clicks per client-day-of-use
+                    c.amazon_clicks/NULLIF((population.clients * pe.p_amazon), 0)
+                        AS amazon_clicks_per_client,
+                    c.other_clicks/NULLIF((population.clients * pe.p_other), 0)
+                        AS other_clicks_per_client
                     FROM
                     population
                     LEFT JOIN
@@ -494,7 +537,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
     @step
     def test(self):
-        nb_df = pd.read_parquet("mobile_nb_out.parquet")
+        nb_df = pd.read_parquet("mobile_nb_out_0923.parquet")
         output_for_test = self.rev_forecast_dat.copy()
         nb_df = nb_df.drop(columns="merge_key")
         assert set(nb_df.columns) == set(output_for_test)
