@@ -5,7 +5,6 @@
 
 from datetime import datetime, timedelta
 
-import numpy as np
 import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
@@ -91,6 +90,22 @@ def get_direct_allocation_df(
     return direct_allocation_df
 
 
+def vectorized_date_to_month(series: pd.Series) -> pd.Series:
+    """Turn datetime into the first day of the corresponding month.
+
+    Parameters
+    ----------
+    series : pd.Series
+       series of datetimes
+
+    Returns
+    -------
+    pd.Series
+        datetimes set to the first day of the month
+    """
+    return pd.to_datetime({"year": series.dt.year, "month": series.dt.month, "day": 1})
+
+
 @project(name="ad_tiles_forecast")
 class AdTilesForecastFlow(FlowSpec):
     """Flow for ads tiles forecasting."""
@@ -126,32 +141,122 @@ class AdTilesForecastFlow(FlowSpec):
         self.active_users_aggregates_table = (
             "moz-fx-data-shared-prod.telemetry.active_users_aggregates"
         )
+        self.event_aggregates_table = (
+            "moz-fx-data-shared-prod.contextual_services.event_aggregates"
+        )
+        self.newtab_aggregates_table = (
+            "mozdata.telemetry.newtab_clients_daily_aggregates"
+        )
 
-        self.next(self.get_tile_data)
+        self.next(self.get_tile_impression_data)
 
     @step
-    def get_tile_data(self):
+    def get_tile_impression_data(self):
         """Retrieve tile impressions."""
-        tile_data_query = f"SELECT * FROM `{self.tile_data_table}`"
+        query_start_date = self.observed_start_date.strftime("%Y-%m-%d")
+        tile_impression_data_query = f""" SELECT
+                                country,
+                                submission_date,
+                                form_factor,
+                                release_channel,
+                                SUM(IF(position <= 2, event_count, 0))
+                                    AS sponsored_impressions_1and2,
+                                SUM(event_count) AS sponsored_impressions_all
+                            FROM
+                                `{self.event_aggregates_table}`
+                            WHERE
+                                event_type = 'impression'
+                                AND source = 'topsites'
+                                AND (
+                                    submission_date >= DATE_TRUNC(PARSE_DATE('%Y-%m-%d',
+                                                                    '{query_start_date}'),
+                                                                     MONTH)
+                                    AND submission_date <= DATE_TRUNC(CURRENT_DATE(),
+                                                                        MONTH)
+                                )
+                            GROUP BY
+                                country,
+                                submission_date,
+                                form_factor,
+                                release_channel"""
         client = bigquery.Client(project=GCS_PROJECT_NAME)
-        hist_inventory = client.query(tile_data_query).to_dataframe()
+        self.inventory_raw = client.query(tile_impression_data_query).to_dataframe()
+        self.next(self.get_newtab_visits)
 
-        inventory = hist_inventory.copy()
-        data_types_dict = {
-            "country": str,
-            "submission_month": str,
-            "user_count": float,
-            "impression_count_1and2": float,
-            "visit_count": float,
-            "clients": float,
-            "total_inventory_1and2": float,
-            "fill_rate": float,
-        }
-        inventory = inventory.replace(r"^\s*$", np.nan, regex=True).astype(
-            data_types_dict
+    @step
+    def get_newtab_visits(self):
+        """Get newtab visits by country."""
+        query_start_date = self.observed_start_date.strftime("%Y-%m-%d")
+        countries = self.config_data["RPM"].keys()
+        countries_string = ",".join(f"'{el}'" for el in countries)
+        query = f""" SELECT
+                    DATE_TRUNC(submission_date, MONTH) AS submission_month,
+                    country_code as country,
+                    SUM(newtab_visit_count) AS newtab_visits,
+                FROM
+                    `{self.newtab_aggregates_table}`
+                WHERE
+                    topsites_enabled
+                    AND topsites_sponsored_enabled
+                    AND (
+                                    submission_date >= DATE_TRUNC(PARSE_DATE('%Y-%m-%d',
+                                                                    '{query_start_date}'),
+                                                                     MONTH)
+                                    AND submission_date <= DATE_TRUNC(CURRENT_DATE(),
+                                                                        MONTH)
+                                )
+                    AND country_code IN ({countries_string})
+                GROUP BY
+                    submission_month,
+                    country_code"""
+        client = bigquery.Client(project=GCS_PROJECT_NAME)
+        newtab_visits = client.query(query).to_dataframe()
+        newtab_visits["submission_month"] = pd.to_datetime(
+            newtab_visits["submission_month"]
         )
-        inventory["submission_month"] = pd.to_datetime(inventory["submission_month"])
-        inventory.rename(columns={"country": "country"}, inplace=True)
+        newtab_visits["total_inventory_1and2"] = newtab_visits["newtab_visits"] * 2
+        newtab_visits["total_inventory_1to3"] = newtab_visits["newtab_visits"] * 3
+        self.newtab_vists = newtab_visits
+        self.next(self.desktop_tile_impression_cleaning)
+
+    @step
+    def desktop_tile_impression_cleaning(self):
+        """Clean tile impression data and join to newtab visits.
+
+        Creates fill_rate and sponsored_impressions columns
+        """
+        countries = self.config_data["RPM"].keys()
+        inventory_raw = self.inventory_raw[
+            (self.inventory_raw["form_factor"] == "desktop")
+            & (self.inventory_raw["country"].isin(countries))
+        ]
+        inventory_raw["submission_month"] = vectorized_date_to_month(
+            pd.to_datetime(inventory_raw["submission_date"])
+        )
+        inventory_agg = (
+            inventory_raw[
+                [
+                    "submission_month",
+                    "country",
+                    "sponsored_impressions_1and2",
+                    "sponsored_impressions_all",
+                ]
+            ]
+            .groupby(["submission_month", "country"])
+            .sum()
+            .reset_index()
+        )
+
+        # join on newtab vists and calculate fill rates
+        inventory = inventory_agg.merge(
+            self.newtab_vists, on=["submission_month", "country"], how="inner"
+        )
+        inventory["fill_rate"] = (
+            inventory.sponsored_impressions_1and2 / inventory.total_inventory_1and2
+        )
+        inventory["visits_total_fill_rate_1to3"] = (
+            inventory.sponsored_impressions_all / inventory.total_inventory_1to3
+        )
 
         self.inventory = inventory
 

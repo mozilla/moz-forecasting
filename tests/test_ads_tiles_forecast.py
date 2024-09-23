@@ -3,7 +3,21 @@
 import pandas as pd
 import pytest
 
-from moz_forecasting.ad_tiles_forecast.flow import get_direct_allocation_df
+from moz_forecasting.ad_tiles_forecast.flow import (
+    get_direct_allocation_df,
+    vectorized_date_to_month,
+)
+
+
+def test_vectorized_day_into_month():
+    """Test vectorized_date_to_month."""
+    test_series = pd.to_datetime(pd.Series(["2019-02-21", "2039-09-01", "1969-01-21"]))
+
+    output = vectorized_date_to_month(test_series)
+
+    expected = pd.to_datetime(pd.Series(["2019-02-01", "2039-09-01", "1969-01-01"]))
+
+    pd.testing.assert_series_equal(output, expected)
 
 
 def test_direct_allocation_exception():
