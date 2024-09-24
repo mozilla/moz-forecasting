@@ -23,7 +23,11 @@ RUN sh /uv-installer.sh && rm /uv-installer.sh
 ENV PATH="${HOME}/.cargo/bin/:$PATH"
 
 # Copy the project into the image
-ADD . /app
+ADD moz_forecasting /app/moz_forecasting
+ADD README.md /app
+ADD tests /app/tests
+ADD pyproject.toml /app
+ADD uv.lock /app
 
 # Sync the project into a new environment, using the frozen lockfile
 WORKDIR /app
