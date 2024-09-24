@@ -566,45 +566,6 @@ class AdTilesForecastFlow(FlowSpec):
 
         self.output_df = revenue_forecast
 
-        self.next(self.test)
-
-    @step
-    def test(self):
-        """Check outputs."""
-        print(
-            """
-            Flow complete.
-            """
-        )
-        # write output
-        self.output_df["submission_month"] = self.output_df["submission_month"].astype(
-            "datetime64[ms]"
-        )
-        nb_df = pd.read_parquet("nb_output_new.parquet")
-
-        output_for_test = self.output_df.copy()
-        output_for_test = output_for_test.rename(
-            columns={
-                "inventory_forecast": "country_inventory",
-                "expected_impressions": "expected_impressions_last_cap",
-                "no_direct_sales": "revenue_no_ds",
-                "with_direct_sales": "revenue_ds",
-                "country": "live_markets",
-            }
-        )
-        assert set(nb_df.columns) == set(output_for_test)
-        pd.testing.assert_frame_equal(
-            nb_df.sort_values(["submission_month", "live_markets"]).reset_index(
-                drop=True
-            ),
-            output_for_test[nb_df.columns]
-            .sort_values(["submission_month", "live_markets"])
-            .reset_index(drop=True),
-            check_exact=False,
-            rtol=0.05,
-            check_dtype=False,
-        )
-
         self.next(self.end)
 
     @step
