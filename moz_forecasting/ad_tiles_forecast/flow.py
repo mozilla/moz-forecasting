@@ -540,9 +540,12 @@ class AdTilesForecastFlow(FlowSpec):
 
         revenue_forecast = pd.merge(self.revenue_forecast, RPM_df, on="country")
 
-        after_valid_date = revenue_forecast["submission_month"] > "2024-09-01"
+        # Desktop RPMs were increased by 10% in summer of 2024
+        # with an effective date of 2024-09-30
+        # as part of the AMP contract renewal conversations.
+        after_valid_date = revenue_forecast["submission_month"] <= "2024-09-01"
         revenue_forecast.loc[after_valid_date, "RPM"] = (
-            revenue_forecast.loc[after_valid_date, "RPM"] * 1.1
+            revenue_forecast.loc[after_valid_date, "RPM"] * 1 / 1.1
         )
 
         # multiply inventory by RPMs

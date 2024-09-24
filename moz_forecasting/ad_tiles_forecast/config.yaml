@@ -1,17 +1,17 @@
 # Revenue per Mille, agreed contractually with Admarketplace.
 RPM:
-  AU: 0.09
-  BR: 0.06
-  CA: 0.30
-  DE: 0.48
-  ES: 0.18
-  FR: 0.21
-  GB: 0.35
-  IN: 0.04
-  IT: 0.33
-  JP: 0.02
-  MX: 0.19
-  US: 0.57
+  AU: 0.099
+  BR: 0.066
+  CA: 0.330
+  DE: 0.528
+  ES: 0.198
+  FR: 0.231
+  GB: 0.385
+  IN: 0.044
+  IT: 0.363
+  JP: 0.022
+  MX: 0.209
+  US: 0.627
 
 # list of direct allocation time windows
 # each element in the list is a timeframe

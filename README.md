@@ -3,7 +3,7 @@ Forecasting Framework for Mozilla
 
 ## Overview
 Each forecast is executed via a metaflow flow in the `flows` directory.  Currently supported forecasts are:
-- ad tiles forecast (ad_tiles_forecast.py)
+- Ads Tiles Revenue Forecast (ad_tiles_forecast)
 
 There are additionally helper functions in (TBD when kpi_forecasting branch gets merged)
 
@@ -22,7 +22,7 @@ When you set up outerbounds (see next section), a new metaflow config file is cr
 
 If you are new to Outerbounds, you'll need to be added to the `revenue` permimeter (TODO: ask Chelsea how to add new people.  If you are reading this you likely already have access).  You will also need to configure metaflow to use Outerbounds.  Instructions for doing this can be found in the [mlops template repo README](github.com/mozilla/mozmlops/tree/main/src/mozmlops/templates#most-importantly-you-need-an-account-with-outerbounds-do-not-make-this-yourself)
 
-Once this is set up, the whole pipeline can be run in Outerbounds from the command linke using the `--with kubernetes` flag like:
+Once this is set up, the whole pipeline can be run in Outerbounds from the command line using the `--with kubernetes` flag like:
 ```uv run <PATH TO FLOW FILE> run --with kubernetes:image=registry.hub.docker.com/jsnydermoz/moz-forecasting:latest```
 
 One nice feature of metaflow is that a specific step can be configured to run in the cloud.  This is done via the `@kubernetes` decorator.  As with the command line argument, the docker image needs to be specified.  It would go before the step decorator and would look somethign like `@kubernetes(image="registry.hub.docker.com/jsnydermoz/moz-forecasting:latest", cpu=1)`
