@@ -40,6 +40,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         self.first_day_of_current_month = datetime.today().replace(day=1)
         last_day_of_previous_month = self.first_day_of_current_month - timedelta(days=1)
         first_day_of_previous_month = last_day_of_previous_month.replace(day=1)
+        self.first_day_of_previous_month = first_day_of_previous_month
         self.observed_start_date = first_day_of_previous_month - relativedelta(years=1)
         self.observed_end_date = last_day_of_previous_month
 
@@ -90,38 +91,16 @@ class MobileAdTilesForecastFlow(FlowSpec):
                                 FROM only_most_recent_kpi_forecasts),
             pivoted_table as (SELECT * FROM renamed_indices
                                     PIVOT (SUM(value)
-                                    FOR measure in ('observed', 'p05', 'p10',
-                                                    'p20', 'p30', 'p40', 'p50', 'p60',
-                                                    'p70', 'p80', 'p90', 'p95', 'mean'))),
-            output_table as (SELECT CAST(asofdate AS STRING) asofdate,
-                                    CAST(submission_date AS STRING) date,
-                                    REPLACE(CAST(target AS STRING), "_dau", "") target,
-                                    CAST(unit AS STRING) unit,
-                                    CAST(forecast_date AS STRING) forecast_date,
-                                    CAST(forecast_parameters AS STRING) forecast_parameters,
-                                    (SELECT MAX(a) FROM UNNEST([mean, observed]) a WHERE a is not NULL) as value,
-                                    p05 as yhat_p5,
-                                    p10 as yhat_p10,
-                                    p20 as yhat_p20,
-                                    p30 as yhat_p30,
-                                    p40 as yhat_p40,
-                                    p50 as yhat_p50,
-                                    p60 as yhat_p60,
-                                    p70 as yhat_p70,
-                                    p80 as yhat_p80,
-                                    p90 as yhat_p90,
-                                    p95 as yhat_p95,
-                                    FROM pivoted_table)
+                                    FOR measure in ('observed','p10', 'p90', 'mean')))
         SELECT
-            date AS automated_kpi_confidence_intervals_submission_month
-            ,value AS automated_kpi_confidence_intervals_estimated_value
-            ,yhat_p10 AS automated_kpi_confidence_intervals_estimated_10th_percentile
-            ,yhat_p90 AS automated_kpi_confidence_intervals_estimated_90th_percentile
-        FROM output_table
+            CAST(submission_date as STRING) AS automated_kpi_confidence_intervals_submission_month,
+            (SELECT MAX(a) FROM UNNEST([mean, observed]) a WHERE a is not NULL) AS automated_kpi_confidence_intervals_estimated_value,
+            p10 AS automated_kpi_confidence_intervals_estimated_10th_percentile,
+            p90 AS automated_kpi_confidence_intervals_estimated_90th_percentile
+        FROM pivoted_table
         WHERE
-            unit = 'month'
-            AND target = 'mobile'
-        ORDER BY date ASC
+            CAST(unit AS STRING) = 'month'
+            AND REPLACE(CAST(target AS STRING), "_dau", "") = 'mobile'
         """
 
         client = bigquery.Client(project=GCS_PROJECT_NAME)
@@ -324,17 +303,19 @@ class MobileAdTilesForecastFlow(FlowSpec):
             aggregate_data["other_clicks"] / aggregate_data["other_clients"]
         )
 
-        self.mobile_forecasting_data = aggregate_data
+        # in notebook this is mobile_forecasting_data
+        self.usage_by_date_and_country = aggregate_data
 
-        self.next(self.get_last_comp_month)
+        self.next(self.aggregate_usage)
 
     @step
-    def get_last_comp_month(self):
-        last_comp_month = (
-            self.mobile_forecasting_data[
+    def aggregate_usage(self):
+        """Get usage by country by averaging over last month."""
+        by_country_usage = (
+            self.usage_by_date_and_country[
                 (
-                    pd.to_datetime(self.mobile_forecasting_data.submission_date)
-                    >= pd.to_datetime("2024-08-01")
+                    pd.to_datetime(self.usage_by_date_and_country.submission_date)
+                    >= self.first_day_of_previous_month
                 )
             ]
             .groupby("country")[
@@ -349,7 +330,9 @@ class MobileAdTilesForecastFlow(FlowSpec):
             .mean()
             .reset_index()
         )
-        self.last_comp_month = last_comp_month
+
+        # in notebook this is last_comp_month
+        self.usage_by_country = by_country_usage
         self.next(self.get_cpcs)
 
     @step
@@ -394,10 +377,10 @@ class MobileAdTilesForecastFlow(FlowSpec):
     def combine_bq_tables(self):
         """Combine this biz."""
         forecast_start_date = self.first_day_of_current_month.strftime("%Y-%m-%d")
-        rev_forecast_assump = pd.merge(
-            self.last_comp_month, self.mobile_cpc, how="left", on="country"
+        country_level_metrics = pd.merge(
+            self.usage_by_country, self.mobile_cpc, how="left", on="country"
         )
-        rev_forecast_dat = pd.merge(rev_forecast_assump, self.mobile_kpi, how="cross")
+        rev_forecast_dat = pd.merge(country_level_metrics, self.mobile_kpi, how="cross")
 
         rev_forecast_dat = rev_forecast_dat[
             pd.to_datetime(
@@ -478,11 +461,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
         rev_forecast_dat[
             "submission_month"
         ] = rev_forecast_dat.automated_kpi_confidence_intervals_submission_month
-
-        rev_forecast_dat[
-            pd.to_datetime(rev_forecast_dat.submission_month)
-            == pd.to_datetime(forecast_start_date)
-        ].groupby(["country"])[["total_revenue", "total_clicks"]].sum()
 
         self.rev_forecast_dat = rev_forecast_dat
 
