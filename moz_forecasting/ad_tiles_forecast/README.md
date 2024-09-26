@@ -1,7 +1,7 @@
-# Ad Tiles Forecast
+# Ads Tiles Revenue Forecast
 
 ## Overview
-This flow forecasts the number of tiles available for desktop.  It does not do any forecasting on it's own, but rather scales the kpi desktop dau forecast to get the desired metrics.  There are three forecasted values created by this pipeline:
+This flow forecasts the number of tiles available for desktop. Rather than forecasting everything on its own, it scales the KPI desktop DAU forecast to get the desired metrics. Specifically, the inventory forecast is combined with fill rates, to get future impressions. These are then used to produce revenue estimates.  There are three forecasted values created by this pipeline:
 
 - `inventory_forecast`: Forecasted inventory by month and country
 - `expected_impressions`: the forecasted number of impressions

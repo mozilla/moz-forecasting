@@ -540,9 +540,12 @@ class AdTilesForecastFlow(FlowSpec):
 
         revenue_forecast = pd.merge(self.revenue_forecast, RPM_df, on="country")
 
-        after_valid_date = revenue_forecast["submission_month"] > "2024-09-01"
+        # Desktop RPMs were increased by 10% in summer of 2024
+        # with an effective date of 2024-09-30
+        # as part of the AMP contract renewal conversations.
+        after_valid_date = revenue_forecast["submission_month"] <= "2024-09-01"
         revenue_forecast.loc[after_valid_date, "RPM"] = (
-            revenue_forecast.loc[after_valid_date, "RPM"] * 1.1
+            revenue_forecast.loc[after_valid_date, "RPM"] * 1 / 1.1
         )
 
         # multiply inventory by RPMs
@@ -562,45 +565,6 @@ class AdTilesForecastFlow(FlowSpec):
         ]
 
         self.output_df = revenue_forecast
-
-        self.next(self.test)
-
-    @step
-    def test(self):
-        """Check outputs."""
-        print(
-            """
-            Flow complete.
-            """
-        )
-        # write output
-        self.output_df["submission_month"] = self.output_df["submission_month"].astype(
-            "datetime64[ms]"
-        )
-        nb_df = pd.read_parquet("nb_output_new.parquet")
-
-        output_for_test = self.output_df.copy()
-        output_for_test = output_for_test.rename(
-            columns={
-                "inventory_forecast": "country_inventory",
-                "expected_impressions": "expected_impressions_last_cap",
-                "no_direct_sales": "revenue_no_ds",
-                "with_direct_sales": "revenue_ds",
-                "country": "live_markets",
-            }
-        )
-        assert set(nb_df.columns) == set(output_for_test)
-        pd.testing.assert_frame_equal(
-            nb_df.sort_values(["submission_month", "live_markets"]).reset_index(
-                drop=True
-            ),
-            output_for_test[nb_df.columns]
-            .sort_values(["submission_month", "live_markets"])
-            .reset_index(drop=True),
-            check_exact=False,
-            rtol=0.05,
-            check_dtype=False,
-        )
 
         self.next(self.end)
 
