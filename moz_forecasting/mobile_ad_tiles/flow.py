@@ -5,7 +5,6 @@
 
 from datetime import datetime, timedelta
 
-import numpy as np
 import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
@@ -24,7 +23,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         name="config",
         is_text=True,
         help="configuration for flow",
-        default="moz_forecasting/ad_tiles_forecast/config.yaml",
+        default="moz_forecasting/mobile_ad_tiles/config.yaml",
     )
 
     @step
@@ -36,6 +35,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         """
         # load config
         self.config_data = yaml.safe_load(self.config)
+        self.countries = self.config_data["countries"]
 
         self.first_day_of_current_month = datetime.today().replace(day=1)
         last_day_of_previous_month = self.first_day_of_current_month - timedelta(days=1)
@@ -57,7 +57,14 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
     @step
     def get_kpi_forecast(self):
-        """Get Mobile KPI Data."""
+        """Get Mobile KPI Data.
+
+        Creates the following columns, all of which are aggregate
+        metrics of the mobile dau forecast:
+        automated_kpi_confidence_intervals_estimated_value: mean value
+        automated_kpi_confidence_intervals_estimated_10th_percentile: 10th percentile
+        automated_kpi_confidence_intervals_estimated_90th_percentile: 90th percentile
+        """
         query = f"""
         WITH
             most_recent_forecasts AS (
@@ -93,8 +100,10 @@ class MobileAdTilesForecastFlow(FlowSpec):
                                     PIVOT (SUM(value)
                                     FOR measure in ('observed','p10', 'p90', 'mean')))
         SELECT
-            CAST(submission_date as STRING) AS automated_kpi_confidence_intervals_submission_month,
-            (SELECT MAX(a) FROM UNNEST([mean, observed]) a WHERE a is not NULL) AS automated_kpi_confidence_intervals_estimated_value,
+            CAST(submission_date as STRING)
+                AS automated_kpi_confidence_intervals_submission_month,
+            (SELECT MAX(a) FROM UNNEST([mean, observed]) a WHERE a is not NULL)
+                AS automated_kpi_confidence_intervals_estimated_value,
             p10 AS automated_kpi_confidence_intervals_estimated_10th_percentile,
             p90 AS automated_kpi_confidence_intervals_estimated_90th_percentile
         FROM pivoted_table
@@ -125,6 +134,16 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
     @step
     def get_dau_by_country(self):
+        """Get dau by country.
+
+        This step creates two columns:
+            - eligible_share_country: the quotient of eligible clients within a
+                given country to the total number of clients across all countries
+                for each day
+            - eligible_clients: the number of eligible clients
+                within a country on given day
+                that are using Fenix or Firefox iOS on the release channel
+        """
         forecast_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
         query = f"""CREATE TEMP FUNCTION IsEligible(os STRING,
                                                     version NUMERIC,
@@ -173,6 +192,23 @@ class MobileAdTilesForecastFlow(FlowSpec):
         client = bigquery.Client(project=GCS_PROJECT_NAME)
         query_job = client.query(query)
         dau_raw = query_job.to_dataframe()
+
+        # make sure countries with eligible clients
+        # is a subset of countries in the config
+        eligible_by_country = (
+            dau_raw[["country", "eligible_clients"]].groupby("country").sum()
+        )
+        countries_with_eligible = eligible_by_country[
+            eligible_by_country["eligible_clients"] > 0
+        ].index
+        if not set(countries_with_eligible) <= set(self.countries):
+            extra_countries = ",".join(
+                list(set(self.countries) - set(countries_with_eligible))
+            )
+            raise ValueError(
+                f"Eligible countries with no eligible clients: {extra_countries}"
+            )
+
         clients_by_day = (
             dau_raw[["submission_date", "total_clients"]]
             .groupby("submission_date")
@@ -192,11 +228,10 @@ class MobileAdTilesForecastFlow(FlowSpec):
             client_share["eligible_clients"] / client_share["total_clients"]
         )
 
-        population_countries = ["AU", "BR", "CA", "DE", "ES", "FR", "GB", "IN", "US"]
         population = (
             dau_raw.loc[
                 dau_raw.app_name.isin(["Fenix", "Firefox iOS"])
-                & dau_raw.country.isin(population_countries)
+                & dau_raw.country.isin(self.countries)
                 & (dau_raw.channel == "release"),
                 ["submission_date", "country", "eligible_clients"],
             ]
@@ -212,7 +247,17 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
     @step
     def get_tile_data(self):
+        """Get tile interaction data.
+
+        This step produces information about both clicks and
+        impressions for tiles.  The following columns are created
+        p_amazon: the fraction of users where the advertiser is amazon
+        p_other: the fraction of users where the advertiser is not amazon (or yandex)
+        amazon_clicks: number of clicks on amazon tiles
+        other_clicks: number of clicks on non-amazon tiles
+        """
         forecast_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
+        countries_string = ",".join(f"'{el}'" for el in self.countries)
         query = f"""SELECT
                         submission_date,
                         country,
@@ -242,15 +287,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         AND release_channel = "release"
                         AND event_type in ("impression", "click")
                         AND source = "topsites"
-                        AND country IN ("AU",
-                                        "BR",
-                                        "CA",
-                                        "DE",
-                                        "ES",
-                                        "FR",
-                                        "GB",
-                                        "IN",
-                                        "US")
+                        AND country IN ({countries_string})
                     GROUP BY
                         submission_date,
                         country,
@@ -283,8 +320,12 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
     @step
     def aggregate_data(self):
-        """aggregate events and dau data and create new fields."""
+        """Aggregate events and dau data and create new fields.
 
+        Creates the following new columns:
+        - amazon_clicks_per_client
+        - other_clicks_per_client
+        """
         aggregate_data = self.events_data.merge(
             self.dau_by_country, on=["submission_date", "country"]
         )
@@ -337,19 +378,26 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
     @step
     def get_cpcs(self):
+        """Calculate the cpc by country.
+
+        Creates the following country-level columns
+        - amazon_cpc
+        - other_cpc
+        """
         table_id_1 = "mozdata.revenue.revenue_data_admarketplace"
         date_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
-
+        countries_string = ",".join(f"'{el}'" for el in self.countries)
         query = f"""
         with group_ads AS (
             SELECT
             revenue_data_admarketplace.country_code  AS country,
             advertiser,
-            SAFE_DIVIDE(COALESCE(SUM(revenue_data_admarketplace.payout ), 0), COALESCE(SUM(revenue_data_admarketplace.valid_clicks ), 0)) AS cpc
+            SAFE_DIVIDE(COALESCE(SUM(revenue_data_admarketplace.payout ), 0),
+                COALESCE(SUM(revenue_data_admarketplace.valid_clicks ), 0)) AS cpc
             FROM `{table_id_1}` AS revenue_data_admarketplace
             WHERE
             (revenue_data_admarketplace.adm_date ) >= (DATE('{date_start}'))
-            AND (revenue_data_admarketplace.country_code ) IN ('BR', 'CA', 'DE', 'ES', 'FR', 'GB', 'IN', 'AU', 'US')
+            AND (revenue_data_admarketplace.country_code ) IN ({countries_string})
             AND (revenue_data_admarketplace.product ) = 'mobile tile'
             GROUP BY 1, 2
         ), sep_CPC AS (
@@ -375,7 +423,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
     @step
     def combine_bq_tables(self):
-        """Combine this biz."""
+        """Combine all data and calculate metrics."""
         forecast_start_date = self.first_day_of_current_month.strftime("%Y-%m-%d")
         country_level_metrics = pd.merge(
             self.usage_by_country, self.mobile_cpc, how="left", on="country"
@@ -458,9 +506,9 @@ class MobileAdTilesForecastFlow(FlowSpec):
             rev_forecast_dat["other_revenue"] + rev_forecast_dat["amazon_revenue"]
         )
         rev_forecast_dat["device"] = "mobile"
-        rev_forecast_dat[
-            "submission_month"
-        ] = rev_forecast_dat.automated_kpi_confidence_intervals_submission_month
+        rev_forecast_dat["submission_month"] = (
+            rev_forecast_dat.automated_kpi_confidence_intervals_submission_month
+        )
 
         self.rev_forecast_dat = rev_forecast_dat
 
@@ -468,6 +516,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
     @step
     def test(self):
+        """Test data."""
         nb_df = pd.read_parquet("mobile_nb_out_0923.parquet")
         output_for_test = self.rev_forecast_dat.copy()
         nb_df = nb_df.drop(columns="merge_key")
@@ -485,6 +534,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
     @step
     def end(self):
+        """Write data."""
         print("yay")
 
 
