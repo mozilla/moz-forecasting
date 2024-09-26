@@ -5,6 +5,10 @@
 
 from datetime import datetime, timedelta
 
+<<<<<<< HEAD
+=======
+import numpy as np
+>>>>>>> 0313b60972a53c3be57ff586f193e3e351e0ea7b
 import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
@@ -23,7 +27,11 @@ class MobileAdTilesForecastFlow(FlowSpec):
         name="config",
         is_text=True,
         help="configuration for flow",
+<<<<<<< HEAD
         default="moz_forecasting/mobile_ad_tiles/config.yaml",
+=======
+        default="moz_forecasting/ad_tiles_forecast/config.yaml",
+>>>>>>> 0313b60972a53c3be57ff586f193e3e351e0ea7b
     )
 
     @step
@@ -35,12 +43,18 @@ class MobileAdTilesForecastFlow(FlowSpec):
         """
         # load config
         self.config_data = yaml.safe_load(self.config)
+<<<<<<< HEAD
         self.countries = self.config_data["countries"]
+=======
+>>>>>>> 0313b60972a53c3be57ff586f193e3e351e0ea7b
 
         self.first_day_of_current_month = datetime.today().replace(day=1)
         last_day_of_previous_month = self.first_day_of_current_month - timedelta(days=1)
         first_day_of_previous_month = last_day_of_previous_month.replace(day=1)
+<<<<<<< HEAD
         self.first_day_of_previous_month = first_day_of_previous_month
+=======
+>>>>>>> 0313b60972a53c3be57ff586f193e3e351e0ea7b
         self.observed_start_date = first_day_of_previous_month - relativedelta(years=1)
         self.observed_end_date = last_day_of_previous_month
 
@@ -53,6 +67,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
             "moz-fx-data-shared-prod.telemetry.active_users_aggregates"
         )
 
+<<<<<<< HEAD
         self.next(self.get_kpi_forecast)
 
     @step
@@ -65,6 +80,13 @@ class MobileAdTilesForecastFlow(FlowSpec):
         automated_kpi_confidence_intervals_estimated_10th_percentile: 10th percentile
         automated_kpi_confidence_intervals_estimated_90th_percentile: 90th percentile
         """
+=======
+        self.next(self.get_mobile_kpi)
+
+    @step
+    def get_mobile_kpi(self):
+        """Get Mobile KPI Data."""
+>>>>>>> 0313b60972a53c3be57ff586f193e3e351e0ea7b
         query = f"""
         WITH
             most_recent_forecasts AS (
@@ -98,6 +120,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                                 FROM only_most_recent_kpi_forecasts),
             pivoted_table as (SELECT * FROM renamed_indices
                                     PIVOT (SUM(value)
+<<<<<<< HEAD
                                     FOR measure in ('observed','p10', 'p90', 'mean')))
         SELECT
             CAST(submission_date as STRING)
@@ -110,6 +133,40 @@ class MobileAdTilesForecastFlow(FlowSpec):
         WHERE
             CAST(unit AS STRING) = 'month'
             AND REPLACE(CAST(target AS STRING), "_dau", "") = 'mobile'
+=======
+                                    FOR measure in ('observed', 'p05', 'p10',
+                                                    'p20', 'p30', 'p40', 'p50', 'p60',
+                                                    'p70', 'p80', 'p90', 'p95', 'mean'))),
+            output_table as (SELECT CAST(asofdate AS STRING) asofdate,
+                                    CAST(submission_date AS STRING) date,
+                                    REPLACE(CAST(target AS STRING), "_dau", "") target,
+                                    CAST(unit AS STRING) unit,
+                                    CAST(forecast_date AS STRING) forecast_date,
+                                    CAST(forecast_parameters AS STRING) forecast_parameters,
+                                    (SELECT MAX(a) FROM UNNEST([mean, observed]) a WHERE a is not NULL) as value,
+                                    p05 as yhat_p5,
+                                    p10 as yhat_p10,
+                                    p20 as yhat_p20,
+                                    p30 as yhat_p30,
+                                    p40 as yhat_p40,
+                                    p50 as yhat_p50,
+                                    p60 as yhat_p60,
+                                    p70 as yhat_p70,
+                                    p80 as yhat_p80,
+                                    p90 as yhat_p90,
+                                    p95 as yhat_p95,
+                                    FROM pivoted_table)
+        SELECT
+            date AS automated_kpi_confidence_intervals_submission_month
+            ,value AS automated_kpi_confidence_intervals_estimated_value
+            ,yhat_p10 AS automated_kpi_confidence_intervals_estimated_10th_percentile
+            ,yhat_p90 AS automated_kpi_confidence_intervals_estimated_90th_percentile
+        FROM output_table
+        WHERE
+            unit = 'month'
+            AND target = 'mobile'
+        ORDER BY date ASC
+>>>>>>> 0313b60972a53c3be57ff586f193e3e351e0ea7b
         """
 
         client = bigquery.Client(project=GCS_PROJECT_NAME)
@@ -130,6 +187,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
         self.mobile_kpi = mobile_kpi
 
+<<<<<<< HEAD
         self.next(self.get_dau_by_country)
 
     @step
@@ -279,12 +337,95 @@ class MobileAdTilesForecastFlow(FlowSpec):
                                 event_count,
                                 0)),
                             0) AS other_interaction_count
+=======
+        self.next(self.big_ass_query)
+
+    @step
+    def big_ass_query(self):
+        """Big query!."""
+        forecast_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
+        query = f"""
+                    CREATE TEMP FUNCTION IsEligible(os STRING, version NUMERIC, country STRING, submission_date DATE)
+                    RETURNS BOOL
+                    AS ((os = "Android" AND  version > 100
+                                            AND (
+                                                (country = "US" AND submission_date >= "2022-09-20")
+                                                OR (country = "DE" AND submission_date >= "2022-12-05")
+                                                OR (country IN ("BR", "CA", "ES", "FR", "GB", "IN", "AU") AND submission_date >= "2023-05-15")
+                                            )) OR (os = "iOS"
+                                                AND version > 101
+                                                AND (
+                                                    (country IN UNNEST(["US"]) AND submission_date >= "2022-10-04")
+                                                    OR (country IN UNNEST(["DE"]) AND submission_date >= "2022-12-05")
+                                                    OR (country IN UNNEST(["BR", "CA", "ES", "FR", "GB", "IN", "AU"]) AND submission_date >= "2023-05-15")
+                                                ))) ;    
+        
+                WITH client_counts as (SELECT
+                            submission_date,
+                            country,
+                            channel,
+                            app_name,
+                            COALESCE(SUM((dau) ), 0) AS total_active,
+                            COALESCE(SUM((daily_users) ), 0) AS total_clients,
+                            SUM(IF(IsEligible(os_grouped, app_version_major, country, submission_date), daily_users, 0)) as eligible_clients,                            FROM
+                            `moz-fx-data-shared-prod.telemetry.active_users_aggregates` AS active_users_aggregates
+                            WHERE
+                            os_grouped in ("iOS", "Android")
+                                AND submission_date >= "2024-09-01"
+                            GROUP BY
+                            submission_date, country, channel, app_name),
+                    grand_total AS (
+                    SELECT
+                        submission_date,
+                        SUM(total_clients) AS monthly_total
+                    FROM
+                        client_counts
+                    GROUP BY
+                        submission_date
+                    ),
+                    client_by_date_and_country AS (SELECT
+                        submission_date,
+                        country,
+                        SUM(eligible_clients) as eligible_clients
+                        FROM client_counts
+                        GROUP BY submission_date, country),
+                    client_share AS (
+                    SELECT
+                        country,
+                        submission_date,
+                        eligible_clients / NULLIF(monthly_total, 0) AS eligible_share_country
+                    FROM
+                        client_by_date_and_country
+                    LEFT JOIN
+                        grand_total
+                    USING
+                        (submission_date)
+                    ),
+                    -------- REVENUE FORECASTING DATA
+                    tiles_percentages AS (
+                    SELECT
+                        "sponsored_tiles" AS product,
+                        submission_date,
+                        country,
+                        SUM(CASE WHEN advertiser = "amazon" THEN user_count ELSE 0 END) / NULLIF(
+                        SUM(user_count),
+                        0
+                        ) AS p_amazon,
+                        SUM(
+                        CASE
+                            WHEN advertiser NOT IN UNNEST(["amazon", "o=45:a", "yandex"])
+                            THEN user_count
+                            ELSE 0
+                        END
+                        ) / NULLIF(SUM(user_count), 0) AS p_other
+>>>>>>> 0313b60972a53c3be57ff586f193e3e351e0ea7b
                     FROM
                         mozdata.contextual_services.event_aggregates
                     WHERE
                         submission_date >= "{forecast_start}"
                         AND form_factor = "phone"
                         AND release_channel = "release"
+<<<<<<< HEAD
                         AND event_type in ("impression", "click")
                         AND source = "topsites"
                         AND country IN ({countries_string})
@@ -357,6 +498,119 @@ class MobileAdTilesForecastFlow(FlowSpec):
                 (
                     pd.to_datetime(self.usage_by_date_and_country.submission_date)
                     >= self.first_day_of_previous_month
+=======
+                        AND event_type = "impression"
+                        AND source = "topsites"
+                        AND country IN UNNEST(["AU", "BR", "CA", "DE", "ES", "FR", "GB", "IN", "IT", "JP", "MX", "US"])
+                    GROUP BY
+                        product,
+                        submission_date,
+                        country
+                    ),
+                    population AS (
+                    SELECT
+                        "sponsored_tiles" AS product,
+                        submission_date,
+                        country,
+                        SUM(eligible_clients) AS clients
+                    FROM
+                        client_counts
+                    WHERE
+                        app_name in ('Fenix', 'Firefox iOS')
+                        AND country IN UNNEST(["AU", "BR", "CA", "DE", "ES", "FR", "GB", "IN", "US"])
+                        AND channel = "release"
+                    GROUP BY
+                        product,
+                        submission_date,
+                        country
+                    ),
+                    -- number of clicks by advertiser (and country and user-selected-time-interval)
+                    clicks AS (
+                    SELECT
+                        "sponsored_tiles" AS product,
+                        submission_date,
+                        country,
+                        COALESCE(SUM(CASE WHEN advertiser = "amazon" THEN event_count ELSE 0 END), 0) AS amazon_clicks,
+                        COALESCE(
+                        SUM(
+                            CASE
+                            WHEN advertiser NOT IN UNNEST(["amazon", "o=45:a", "yandex"])
+                                THEN event_count
+                            ELSE 0
+                            END
+                        ),
+                        0
+                        ) AS other_clicks
+                    FROM
+                        mozdata.contextual_services.event_aggregates
+                    WHERE
+                        submission_date >= "{forecast_start}"
+                        AND form_factor = "phone"
+                        AND release_channel = "release"
+                        AND event_type = "click"
+                        AND source = "topsites"
+                        AND country IN UNNEST(["AU", "BR", "CA", "DE", "ES", "FR", "GB", "IN", "IT", "JP", "MX", "US"])
+                    GROUP BY
+                        product,
+                        submission_date,
+                        country
+                    )
+                    -- number of clicks and client-days-of-use by advertiser (and country and month)
+                    -- daily AS (
+                    SELECT
+                    product,
+                    submission_date,
+                    population.country,
+                    client_share.eligible_share_country,
+                        -- Tiles clients are not directly tagged with advertiser, this must be imputed using impression share
+                        -- Limitation: This undercounts due to dual-Tile display model.
+                    COALESCE(population.clients, 0) AS clients,
+                    (CASE WHEN product = "sponsored_tiles" THEN pe.p_amazon ELSE NULL END) AS p_amazon,
+                    (CASE WHEN product = "sponsored_tiles" THEN pe.p_other ELSE NULL END) AS p_other,
+                    COALESCE(population.clients * pe.p_amazon, 0) AS amazon_clients,
+                    COALESCE(population.clients * pe.p_other, 0) AS other_clients,
+                        -- clicks are directly tagged with advertiser
+                    COALESCE(c.amazon_clicks, 0) AS amazon_clicks,
+                    COALESCE(c.other_clicks, 0) AS other_clicks,
+                        -- clicks per client-day-of-use
+                    c.amazon_clicks / NULLIF((population.clients * pe.p_amazon), 0) AS amazon_clicks_per_client,
+                    c.other_clicks / NULLIF((population.clients * pe.p_other), 0) AS other_clicks_per_client
+                    FROM
+                    population
+                    LEFT JOIN
+                    tiles_percentages pe
+                    USING
+                    (product, submission_date, country)
+                    LEFT JOIN
+                    clicks c
+                    USING
+                    (product, submission_date, country)
+                    LEFT JOIN
+                    client_share
+                    USING
+                    (country, submission_date)
+                    # WHERE
+                    #   submission_date = @submission_date
+                    ORDER BY
+                    product,
+                    submission_date,
+                    country"""
+
+        client = bigquery.Client(project=GCS_PROJECT_NAME)
+        query_job = client.query(query)
+        mobile_forecasting_data = query_job.to_dataframe()
+
+        self.mobile_forecasting_data = mobile_forecasting_data
+        self.next(self.get_last_comp_month)
+
+    @step
+    def get_last_comp_month(self):
+        last_comp_month = (
+            self.mobile_forecasting_data[
+                (
+                    pd.to_datetime(self.mobile_forecasting_data.submission_date)
+                    >= pd.to_datetime("2024-08-01")
+>>>>>>> 0313b60972a53c3be57ff586f193e3e351e0ea7b
                 )
             ]
             .groupby("country")[
@@ -371,13 +625,18 @@ class MobileAdTilesForecastFlow(FlowSpec):
             .mean()
             .reset_index()
         )
+<<<<<<< HEAD
 
         # in notebook this is last_comp_month
         self.usage_by_country = by_country_usage
+=======
+        self.last_comp_month = last_comp_month
+>>>>>>> 0313b60972a53c3be57ff586f193e3e351e0ea7b
         self.next(self.get_cpcs)
 
     @step
     def get_cpcs(self):
+<<<<<<< HEAD
         """Calculate the cpc by country.
 
         Creates the following country-level columns
@@ -387,17 +646,30 @@ class MobileAdTilesForecastFlow(FlowSpec):
         table_id_1 = "mozdata.revenue.revenue_data_admarketplace"
         date_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
         countries_string = ",".join(f"'{el}'" for el in self.countries)
+=======
+        table_id_1 = "mozdata.revenue.revenue_data_admarketplace"
+        date_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
+
+>>>>>>> 0313b60972a53c3be57ff586f193e3e351e0ea7b
         query = f"""
         with group_ads AS (
             SELECT
             revenue_data_admarketplace.country_code  AS country,
             advertiser,
+<<<<<<< HEAD
             SAFE_DIVIDE(COALESCE(SUM(revenue_data_admarketplace.payout ), 0),
                 COALESCE(SUM(revenue_data_admarketplace.valid_clicks ), 0)) AS cpc
             FROM `{table_id_1}` AS revenue_data_admarketplace
             WHERE
             (revenue_data_admarketplace.adm_date ) >= (DATE('{date_start}'))
             AND (revenue_data_admarketplace.country_code ) IN ({countries_string})
+=======
+            SAFE_DIVIDE(COALESCE(SUM(revenue_data_admarketplace.payout ), 0), COALESCE(SUM(revenue_data_admarketplace.valid_clicks ), 0)) AS cpc
+            FROM `{table_id_1}` AS revenue_data_admarketplace
+            WHERE
+            (revenue_data_admarketplace.adm_date ) >= (DATE('{date_start}'))
+            AND (revenue_data_admarketplace.country_code ) IN ('BR', 'CA', 'DE', 'ES', 'FR', 'GB', 'IN', 'AU', 'US')
+>>>>>>> 0313b60972a53c3be57ff586f193e3e351e0ea7b
             AND (revenue_data_admarketplace.product ) = 'mobile tile'
             GROUP BY 1, 2
         ), sep_CPC AS (
@@ -423,12 +695,21 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
     @step
     def combine_bq_tables(self):
+<<<<<<< HEAD
         """Combine all data and calculate metrics."""
         forecast_start_date = self.first_day_of_current_month.strftime("%Y-%m-%d")
         country_level_metrics = pd.merge(
             self.usage_by_country, self.mobile_cpc, how="left", on="country"
         )
         rev_forecast_dat = pd.merge(country_level_metrics, self.mobile_kpi, how="cross")
+=======
+        """Combine this biz."""
+        forecast_start_date = self.first_day_of_current_month.strftime("%Y-%m-%d")
+        rev_forecast_assump = pd.merge(
+            self.last_comp_month, self.mobile_cpc, how="left", on="country"
+        )
+        rev_forecast_dat = pd.merge(rev_forecast_assump, self.mobile_kpi, how="cross")
+>>>>>>> 0313b60972a53c3be57ff586f193e3e351e0ea7b
 
         rev_forecast_dat = rev_forecast_dat[
             pd.to_datetime(
@@ -510,14 +791,26 @@ class MobileAdTilesForecastFlow(FlowSpec):
             "submission_month"
         ] = rev_forecast_dat.automated_kpi_confidence_intervals_submission_month
 
+<<<<<<< HEAD
+=======
+        rev_forecast_dat[
+            pd.to_datetime(rev_forecast_dat.submission_month)
+            == pd.to_datetime(forecast_start_date)
+        ].groupby(["country"])[["total_revenue", "total_clicks"]].sum()
+
+>>>>>>> 0313b60972a53c3be57ff586f193e3e351e0ea7b
         self.rev_forecast_dat = rev_forecast_dat
 
         self.next(self.test)
 
     @step
     def test(self):
+<<<<<<< HEAD
         """Test data."""
         nb_df = pd.read_parquet("mobile_nb_out_0923.parquet")
+=======
+        nb_df = pd.read_parquet("mobile_nb_out.parquet")
+>>>>>>> 0313b60972a53c3be57ff586f193e3e351e0ea7b
         output_for_test = self.rev_forecast_dat.copy()
         nb_df = nb_df.drop(columns="merge_key")
         assert set(nb_df.columns) == set(output_for_test)
@@ -534,7 +827,10 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
     @step
     def end(self):
+<<<<<<< HEAD
         """Write data."""
+=======
+>>>>>>> 0313b60972a53c3be57ff586f193e3e351e0ea7b
         print("yay")
 
 
