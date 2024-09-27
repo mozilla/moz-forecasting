@@ -1,0 +1,11 @@
+# countries to include in forecast
+countries:
+  - AU
+  - BR
+  - CA
+  - DE
+  - ES
+  - FR
+  - GB
+  - IN
+  - US
