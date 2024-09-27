@@ -323,8 +323,8 @@ class MobileAdTilesForecastFlow(FlowSpec):
         """Aggregate events and dau data and create new fields.
 
         Creates the following new columns:
-        - amazon_clicks_per_client
-        - other_clicks_per_client
+        - amazon_clicks_per_qdau
+        - other_clicks_per_qdau
         """
         aggregate_data = self.events_data.merge(
             self.dau_by_country, on=["submission_date", "country"]
@@ -337,10 +337,10 @@ class MobileAdTilesForecastFlow(FlowSpec):
             aggregate_data["p_other"] * aggregate_data["eligible_clients"]
         )
 
-        aggregate_data["amazon_clicks_per_client"] = (
+        aggregate_data["amazon_clicks_per_qdau"] = (
             aggregate_data["amazon_clicks"] / aggregate_data["amazon_clients"]
         )
-        aggregate_data["other_clicks_per_client"] = (
+        aggregate_data["other_clicks_per_qdau"] = (
             aggregate_data["other_clicks"] / aggregate_data["other_clients"]
         )
 
@@ -355,7 +355,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         by_country_usage = (
             self.usage_by_date_and_country[
                 (
-                    pd.to_datetime(self.usage_by_date_and_country.submission_date)
+                    self.usage_by_date_and_country.submission_date
                     >= self.first_day_of_previous_month
                 )
             ]
@@ -364,8 +364,8 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     "eligible_share_country",
                     "p_amazon",
                     "p_other",
-                    "amazon_clicks_per_client",
-                    "other_clicks_per_client",
+                    "amazon_clicks_per_qdau",
+                    "other_clicks_per_qdau",
                 ]
             ]
             .mean()
@@ -456,9 +456,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
             * rev_forecast_dat["eligible_share_country"]
             * rev_forecast_dat["p_amazon"]
         )
-        rev_forecast_dat["amazon_clicks_per_qdau"] = rev_forecast_dat[
-            "amazon_clicks_per_client"
-        ]
+
         rev_forecast_dat["amazon_clicks"] = (
             rev_forecast_dat["est_value_amazon_qdau"]
             * rev_forecast_dat["amazon_clicks_per_qdau"]
@@ -487,9 +485,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
             * rev_forecast_dat["eligible_share_country"]
             * rev_forecast_dat["p_other"]
         )
-        rev_forecast_dat["other_clicks_per_qdau"] = rev_forecast_dat[
-            "other_clicks_per_client"
-        ]
         rev_forecast_dat["other_clicks"] = (
             rev_forecast_dat["est_value_other_qdau"]
             * rev_forecast_dat["other_clicks_per_qdau"]
@@ -512,30 +507,37 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
         self.rev_forecast_dat = rev_forecast_dat
 
-        self.next(self.test)
-
-    @step
-    def test(self):
-        """Test data."""
-        nb_df = pd.read_parquet("mobile_nb_out_0923.parquet")
-        output_for_test = self.rev_forecast_dat.copy()
-        nb_df = nb_df.drop(columns="merge_key")
-        assert set(nb_df.columns) == set(output_for_test)
-        pd.testing.assert_frame_equal(
-            nb_df.sort_values(["submission_month", "country"]).reset_index(drop=True),
-            output_for_test[nb_df.columns]
-            .sort_values(["submission_month", "country"])
-            .reset_index(drop=True),
-            check_exact=False,
-            rtol=0.035,
-            check_dtype=False,
-        )
         self.next(self.end)
 
     @step
     def end(self):
         """Write data."""
-        print("yay")
+        output_columns = [
+            "submission_month",
+            "country",
+            "est_value_amazon_qdau",
+            "10p_amazon_qdau",
+            "90p_amazon_qdau",
+            "amazon_clicks_per_qdau",
+            "amazon_clicks",
+            "amazon_cpc",
+            "amazon_revenue",
+            "est_value_other_qdau",
+            "10p_other_qdau",
+            "90p_other_qdau",
+            "other_clicks_per_qdau",
+            "other_clicks",
+            "other_cpc",
+            "other_revenue",
+        ]
+
+        write_df = self.rev_forecast_dat[output_columns]
+        output_info = self.config_data["output"]
+        target_table = f"{output_info['output_database']}.{output_info['output_table']}"
+        job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
+        client = bigquery.Client(project=GCS_PROJECT_NAME)
+
+        client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
 
 
 if __name__ == "__main__":

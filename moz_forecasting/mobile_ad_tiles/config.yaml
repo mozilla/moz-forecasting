@@ -9,3 +9,7 @@ countries:
   - GB
   - IN
   - US
+
+output:
+  output_database: jsnyder
+  output_table: mobile_tiles
