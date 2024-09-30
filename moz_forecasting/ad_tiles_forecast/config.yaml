@@ -46,5 +46,9 @@ direct_allocations:
 # specify the output database and table
 # to write the data to
 output:
-  output_database: revenue_cat3_analysis
-  output_table: amp_rpm_forecasts
+  test:
+      output_database: revenue_cat3_analysis
+    output_table: amp_rpm_forecasts
+  prod:
+    output_database: revenue_cat3_analysis
+    output_table: amp_rpm_forecasts

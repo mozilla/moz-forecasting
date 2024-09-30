@@ -11,5 +11,9 @@ countries:
   - US
 
 output:
-  output_database: jsnyder
-  output_table: mobile_tiles
+  test:
+    output_database: jsnyder
+    output_table: mobile_tiles
+  prod:
+    output_database: revenue_cat3_analysis
+    output_table: mobile_tiles

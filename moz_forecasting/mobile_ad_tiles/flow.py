@@ -9,7 +9,7 @@ import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
-from metaflow import FlowSpec, IncludeFile, project, step
+from metaflow import FlowSpec, IncludeFile, project, step, Parameter
 
 GCS_PROJECT_NAME = "moz-fx-data-bq-data-science"
 GCS_BUCKET_NAME = "bucket-name-here"
@@ -24,6 +24,12 @@ class MobileAdTilesForecastFlow(FlowSpec):
         is_text=True,
         help="configuration for flow",
         default="moz_forecasting/mobile_ad_tiles/config.yaml",
+    )
+
+    test_mode = Parameter(
+        name="test_mode",
+        help="indicates whether or not run should affect production",
+        default=True,
     )
 
     @step
@@ -532,7 +538,10 @@ class MobileAdTilesForecastFlow(FlowSpec):
         ]
 
         write_df = self.rev_forecast_dat[output_columns]
-        output_info = self.config_data["output"]
+        if self.test_mode:
+            output_info = self.config_data["output"]["test"]
+        else:
+            output_info = self.config_data["output"]["prod"]
         target_table = f"{output_info['output_database']}.{output_info['output_table']}"
         job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
         client = bigquery.Client(project=GCS_PROJECT_NAME)
