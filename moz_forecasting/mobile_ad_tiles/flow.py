@@ -9,7 +9,7 @@ import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
-from metaflow import FlowSpec, IncludeFile, project, step, Parameter
+from metaflow import FlowSpec, IncludeFile, Parameter, project, step
 
 GCS_PROJECT_NAME = "moz-fx-data-bq-data-science"
 GCS_BUCKET_NAME = "bucket-name-here"
@@ -258,12 +258,15 @@ class MobileAdTilesForecastFlow(FlowSpec):
         This step produces information about both clicks and
         impressions for tiles.  The following columns are created
         p_amazon: the fraction of users where the advertiser is amazon
-        p_other: the fraction of users where the advertiser is not amazon (or yandex)
+        p_other: the fraction of users where the advertiser is not amazon (or excluded)
         amazon_clicks: number of clicks on amazon tiles
         other_clicks: number of clicks on non-amazon tiles
         """
         forecast_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
         countries_string = ",".join(f"'{el}'" for el in self.countries)
+        excluded_advertisers_string = ",".join(
+            f"'{el}'" for el in self.excluded_advertisers
+        )
         query = f"""SELECT
                         submission_date,
                         country,
@@ -272,7 +275,8 @@ class MobileAdTilesForecastFlow(FlowSpec):
                                             user_count,
                                             0))/SUM(user_count)) AS p_amazon,
                         COALESCE(
-                            SUM(IF(advertiser NOT IN ("amazon", "o=45:a", "yandex"),
+                            SUM(IF(advertiser NOT IN ("amazon",
+                                                        {excluded_advertisers_string}),
                                             user_count,
                                             0))/SUM(user_count)) AS p_other,
                         COALESCE(SUM(
@@ -281,7 +285,8 @@ class MobileAdTilesForecastFlow(FlowSpec):
                                 0)),
                             0) AS amazon_interaction_count,
                         COALESCE(SUM(
-                            IF(advertiser NOT IN ("amazon", "o=45:a", "yandex"),
+                            IF(advertiser NOT IN ("amazon",
+                                                    {excluded_advertisers_string}),
                                 event_count,
                                 0)),
                             0) AS other_interaction_count
@@ -507,9 +512,9 @@ class MobileAdTilesForecastFlow(FlowSpec):
             rev_forecast_dat["other_revenue"] + rev_forecast_dat["amazon_revenue"]
         )
         rev_forecast_dat["device"] = "mobile"
-        rev_forecast_dat[
-            "submission_month"
-        ] = rev_forecast_dat.automated_kpi_confidence_intervals_submission_month
+        rev_forecast_dat["submission_month"] = (
+            rev_forecast_dat.automated_kpi_confidence_intervals_submission_month
+        )
 
         self.rev_forecast_dat = rev_forecast_dat
 

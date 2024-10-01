@@ -10,6 +10,11 @@ countries:
   - IN
   - US
 
+# advertisers to exclude when gathering tile interaction data
+excluded_advertisers:
+  - "o=45:a"
+  - yandex
+
 output:
   test:
     output_database: jsnyder
