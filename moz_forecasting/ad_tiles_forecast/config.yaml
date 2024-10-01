@@ -47,7 +47,7 @@ direct_allocations:
 # to write the data to
 output:
   test:
-      output_database: revenue_cat3_analysis
+    output_database: jsnyder
     output_table: amp_rpm_forecasts
   prod:
     output_database: revenue_cat3_analysis
