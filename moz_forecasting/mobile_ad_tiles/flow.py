@@ -42,6 +42,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         # load config
         self.config_data = yaml.safe_load(self.config)
         self.countries = self.config_data["countries"]
+        self.excluded_advertisers = self.config_data["excluded_advertisers"]
 
         self.first_day_of_current_month = datetime.today().replace(day=1)
         last_day_of_previous_month = self.first_day_of_current_month - timedelta(days=1)
@@ -51,7 +52,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
         self.observed_end_date = last_day_of_previous_month
 
         # tables to get data from
-        self.tile_data_table = "moz-fx-data-bq-data-science.jsnyder.tiles_results_temp"
         self.kpi_forecast_table = (
             "moz-fx-data-shared-prod.telemetry_derived.kpi_forecasts_v0"
         )
@@ -512,9 +512,9 @@ class MobileAdTilesForecastFlow(FlowSpec):
             rev_forecast_dat["other_revenue"] + rev_forecast_dat["amazon_revenue"]
         )
         rev_forecast_dat["device"] = "mobile"
-        rev_forecast_dat["submission_month"] = (
-            rev_forecast_dat.automated_kpi_confidence_intervals_submission_month
-        )
+        rev_forecast_dat[
+            "submission_month"
+        ] = rev_forecast_dat.automated_kpi_confidence_intervals_submission_month
 
         self.rev_forecast_dat = rev_forecast_dat
 
