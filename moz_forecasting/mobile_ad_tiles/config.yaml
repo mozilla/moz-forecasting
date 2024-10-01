@@ -1,0 +1,20 @@
+# countries to include in forecast
+countries:
+  - AU
+  - BR
+  - CA
+  - DE
+  - ES
+  - FR
+  - GB
+  - IN
+  - US
+
+# advertisers to exclude when gathering tile interaction data
+excluded_advertisers:
+  - "o=45:a"
+  - yandex
+
+output:
+  output_database: jsnyder
+  output_table: mobile_tiles
