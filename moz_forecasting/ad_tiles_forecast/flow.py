@@ -572,6 +572,19 @@ class AdTilesForecastFlow(FlowSpec):
 
         self.output_df = revenue_forecast
 
+        self.next(self.test)
+
+    @step
+    def test(self):
+        from metaflow import Step, Run, Flow, Metaflow, namespace
+
+        runs_on_main = [
+            el for el in Flow("AdTilesForecastFlow").runs("main") if el.successful
+        ]
+        runs_on_main = sorted(runs_on_main, key=lambda x: x.finished_at)
+        main_run = runs_on_main[-1]
+        main_output_df = main_run["end"].task.data.output_df
+        pd.testing.assert_frame_equal(main_output_df, self.output_df)
         self.next(self.end)
 
     @step
@@ -613,7 +626,7 @@ class AdTilesForecastFlow(FlowSpec):
         job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
         client = bigquery.Client(project=GCS_PROJECT_NAME)
 
-        client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
+        # client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
 
 
 if __name__ == "__main__":
