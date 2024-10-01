@@ -4,6 +4,7 @@
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 from datetime import datetime, timedelta
+import os
 
 import pandas as pd
 import yaml
@@ -11,7 +12,9 @@ from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
 from metaflow import FlowSpec, IncludeFile, project, step
 
-GCS_PROJECT_NAME = "moz-fx-data-bq-data-science"
+# Defaults to the project for Outerbounds Deployment 
+# To run locally, set to moz-fx-data-bq-data-science on command line before run command
+GCS_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
 GCS_BUCKET_NAME = "bucket-name-here"
 
 
