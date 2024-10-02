@@ -54,17 +54,16 @@ class MobileAdTilesForecastFlow(FlowSpec):
         self.observed_end_date = last_day_of_previous_month
 
         # tables to get data from
-        self.tile_data_table = f"{GCP_PROJECT_NAME}.jsnyder.tiles_results_temp"
         self.kpi_forecast_table = (
-            f"{GCP_PROJECT_NAME}.telemetry_derived.kpi_forecasts_v0"
+            "moz-fx-data-shared-prod.telemetry_derived.kpi_forecasts_v0"
         )
         self.active_users_aggregates_table = (
-            f"{GCP_PROJECT_NAME}.telemetry.active_users_aggregates"
+            "moz-fx-data-shared-prod.telemetry.active_users_aggregates"
         )
         self.event_aggregates_table = (
-            f"{GCP_PROJECT_NAME}.contextual_services.event_aggregates"
+            "moz-fx-data-shared-prod.contextual_services.event_aggregates"
         )
-        self.cpc_table = f"{GCP_PROJECT_NAME}.revenue.revenue_data_admarketplace_cpc"
+        self.cpc_table = "mozdata.revenue.revenue_data_admarketplace_cpc"
 
         self.next(self.get_kpi_forecast)
 
