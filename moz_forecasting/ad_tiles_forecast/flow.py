@@ -2,7 +2,7 @@
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
-
+import os
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -11,8 +11,7 @@ from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
 from metaflow import FlowSpec, IncludeFile, project, step
 
-GCS_PROJECT_NAME = "moz-fx-data-bq-data-science"
-GCS_BUCKET_NAME = "bucket-name-here"
+GCP_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
 
 
 def get_direct_allocation_df(
@@ -134,18 +133,18 @@ class AdTilesForecastFlow(FlowSpec):
         self.observed_end_date = last_day_of_previous_month
 
         # tables to get data from
-        self.tile_data_table = "moz-fx-data-bq-data-science.jsnyder.tiles_results_temp"
+        self.tile_data_table = f"{GCP_PROJECT_NAME}.jsnyder.tiles_results_temp"
         self.kpi_forecast_table = (
-            "moz-fx-data-shared-prod.telemetry_derived.kpi_forecasts_v0"
+            f"{GCP_PROJECT_NAME}.telemetry_derived.kpi_forecasts_v0"
         )
         self.active_users_aggregates_table = (
-            "moz-fx-data-shared-prod.telemetry.active_users_aggregates"
+            f"{GCP_PROJECT_NAME}.telemetry.active_users_aggregates"
         )
         self.event_aggregates_table = (
-            "moz-fx-data-shared-prod.contextual_services.event_aggregates"
+            f"{GCP_PROJECT_NAME}.contextual_services.event_aggregates"
         )
         self.newtab_aggregates_table = (
-            "mozdata.telemetry.newtab_clients_daily_aggregates"
+            f"{GCP_PROJECT_NAME}.telemetry.newtab_clients_daily_aggregates"
         )
 
         self.next(self.get_tile_impression_data)
@@ -179,7 +178,7 @@ class AdTilesForecastFlow(FlowSpec):
                                 submission_date,
                                 form_factor,
                                 release_channel"""
-        client = bigquery.Client(project=GCS_PROJECT_NAME)
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
         self.inventory_raw = client.query(tile_impression_data_query).to_dataframe()
         self.next(self.get_newtab_visits)
 
@@ -209,7 +208,7 @@ class AdTilesForecastFlow(FlowSpec):
                 GROUP BY
                     submission_month,
                     country_code"""
-        client = bigquery.Client(project=GCS_PROJECT_NAME)
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
         newtab_visits = client.query(query).to_dataframe()
         newtab_visits["submission_month"] = pd.to_datetime(
             newtab_visits["submission_month"]
@@ -283,7 +282,7 @@ class AdTilesForecastFlow(FlowSpec):
                     metric_hub_app_name,
                     metric_hub_slug,
                     MAX(forecast_predicted_at) AS forecast_predicted_at
-                FROM `moz-fx-data-shared-prod.telemetry_derived.kpi_forecasts_v0`
+                FROM `{self.kpi_forecast_table}`
                 GROUP BY aggregation_period,
                     metric_alias,
                     metric_hub_app_name,
@@ -318,7 +317,7 @@ class AdTilesForecastFlow(FlowSpec):
         HAVING cdau IS NOT NULL
         """
 
-        client = bigquery.Client(project=GCS_PROJECT_NAME)
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
         query_job = client.query(query)
 
         kpi_forecast = query_job.to_dataframe()
@@ -350,7 +349,7 @@ class AdTilesForecastFlow(FlowSpec):
         2
         """
 
-        client = bigquery.Client(project=GCS_PROJECT_NAME)
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
         query_job = client.query(query)
 
         self.dau_by_country = query_job.to_dataframe()
@@ -602,7 +601,7 @@ class AdTilesForecastFlow(FlowSpec):
         output_info = self.config_data["output"]
         target_table = f"{output_info['output_database']}.{output_info['output_table']}"
         job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-        client = bigquery.Client(project=GCS_PROJECT_NAME)
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
 
         client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
 
