@@ -12,7 +12,7 @@ from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
 from metaflow import FlowSpec, IncludeFile, Parameter, project, step
 
-# Defaults to the project for Outerbounds Deployment 
+# Defaults to the project for Outerbounds Deployment
 # To run locally, set to moz-fx-data-bq-data-science on command line before run command
 GCS_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
 GCS_BUCKET_NAME = "bucket-name-here"
@@ -398,7 +398,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         - amazon_cpc
         - other_cpc
         """
-        table_id_1 = "mozdata.revenue.revenue_data_admarketplace"
+        table_id_1 = "mozdata.revenue.revenue_data_admarketplace_cpc"
         date_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
         countries_string = ",".join(f"'{el}'" for el in self.countries)
         query = f"""
@@ -521,6 +521,19 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
         self.rev_forecast_dat = rev_forecast_dat
 
+        self.next(self.test)
+
+    @step
+    def test(self):
+        from metaflow import Step, Run, Flow, Metaflow, namespace
+
+        runs_on_main = [
+            el for el in Flow("MobileAdTilesForecastFlow").runs("main") if el.successful
+        ]
+        runs_on_main = sorted(runs_on_main, key=lambda x: x.finished_at)
+        main_run = runs_on_main[-1]
+        main_rev_forecast_dat = main_run["end"].task.data.rev_forecast_dat
+        pd.testing.assert_frame_equal(main_rev_forecast_dat, self.rev_forecast_dat)
         self.next(self.end)
 
     @step
@@ -554,7 +567,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
         client = bigquery.Client(project=GCS_PROJECT_NAME)
 
-        client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
+        # client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
 
 
 if __name__ == "__main__":
