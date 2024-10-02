@@ -9,7 +9,7 @@ import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
-from metaflow import FlowSpec, IncludeFile, project, step
+from metaflow import FlowSpec, IncludeFile, project, step, Parameter
 
 GCP_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
 
@@ -116,6 +116,12 @@ class AdTilesForecastFlow(FlowSpec):
         default="moz_forecasting/ad_tiles_forecast/config.yaml",
     )
 
+    test_mode = Parameter(
+        name="test_mode",
+        help="indicates whether or not run should affect production",
+        default=True,
+    )
+
     @step
     def start(self):
         """
@@ -133,18 +139,17 @@ class AdTilesForecastFlow(FlowSpec):
         self.observed_end_date = last_day_of_previous_month
 
         # tables to get data from
-        self.tile_data_table = f"{GCP_PROJECT_NAME}.jsnyder.tiles_results_temp"
         self.kpi_forecast_table = (
-            f"{GCP_PROJECT_NAME}.telemetry_derived.kpi_forecasts_v0"
+            "moz-fx-data-shared-prod.telemetry_derived.kpi_forecasts_v0"
         )
         self.active_users_aggregates_table = (
-            f"{GCP_PROJECT_NAME}.telemetry.active_users_aggregates"
+            "moz-fx-data-shared-prod.telemetry.active_users_aggregates"
         )
         self.event_aggregates_table = (
-            f"{GCP_PROJECT_NAME}.contextual_services.event_aggregates"
+            "moz-fx-data-shared-prod.contextual_services.event_aggregates"
         )
         self.newtab_aggregates_table = (
-            f"{GCP_PROJECT_NAME}.telemetry.newtab_clients_daily_aggregates"
+            "mozdata.telemetry.newtab_clients_daily_aggregates"
         )
 
         self.next(self.get_tile_impression_data)
@@ -598,8 +603,13 @@ class AdTilesForecastFlow(FlowSpec):
             "device",
             "forecast_type",
         }
-        output_info = self.config_data["output"]
-        target_table = f"{output_info['output_database']}.{output_info['output_table']}"
+        if self.test_mode:
+            output_info = self.config_data["output"]["test"]
+        else:
+            output_info = self.config_data["output"]["prod"]
+        target_table = (
+            f"{output_info['project']}.{output_info['database']}.{output_info['table']}"
+        )
         job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
         client = bigquery.Client(project=GCP_PROJECT_NAME)
 

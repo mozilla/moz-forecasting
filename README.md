@@ -14,15 +14,17 @@ This project uses [uv](https://docs.astral.sh/uv/) for project and dependency ma
 
 Once the virtualenv is set up, a pipeline can be run locally with `uv run <PATH TO FLOW FILE> run`
 
+To run locally the `GCP_PROJECT_NAME` environment variable must be set to a profile that the user can create a client from.
+
 #### Running on local after setting up outerbounds
 When you set up outerbounds (see next section), a new metaflow config file is created.  This means you'll be using Outerbounds' perimeters for authentication by default from then on.  To use your local authentication, you want to make sure there is a file at `~/.metaflowconfig/config_local.json` that only has an empty json object in it (this might be created by default, if not you can create it yourself). You can then run with this local profile by doing: `METAFLOW_PROFILE=local uv run flows/ad_tiles_forecast.py run`.  See: (https://outerbounds.com/docs/use-multiple-metaflow-configs/)
 
 ### On Outerbounds
 [Outerbounds](https://ui.desertowl.obp.outerbounds.com/dashboard/workspace) is used to run metaflow flows in the cloud.  The code is run with a docker image via [kubernetes](https://outerbounds.com/engineering/deployment/gcp-k8s/deployment/).  Currently an image that works with uv and metaflow can be found [here](https://hub.docker.com/repository/docker/jsnydermoz/moz-forecasting/general)  (TODO: build and push image in CI, have it go to mozilla GCR rather than Jared's dockerhub). 
 
-If you are new to Outerbounds, you'll need to be added to the `revenue` permimeter (TODO: ask Chelsea how to add new people.  If you are reading this you likely already have access).  You will also need to configure metaflow to use Outerbounds.  Instructions for doing this can be found in the [mlops template repo README](github.com/mozilla/mozmlops/tree/main/src/mozmlops/templates#most-importantly-you-need-an-account-with-outerbounds-do-not-make-this-yourself)
+If you are new to Outerbounds, you'll need to be added to the `revenue` permimeter (TODO: ask Chelsea how to add new people.  If you are reading this you likely already have access). You can see which perimeters you have access to with the `outerbounds perimeter list` command. You will also need to configure metaflow to use Outerbounds.  Instructions for doing this can be found in the [mlops template repo README](github.com/mozilla/mozmlops/tree/main/src/mozmlops/templates#most-importantly-you-need-an-account-with-outerbounds-do-not-make-this-yourself)
 
-Once this is set up, the whole pipeline can be run in Outerbounds from the command line using the `--with kubernetes` flag like:
+Once this is set up, make sure you are in the `revenue` perimeter locally with the command `outerbounds perimeter switch --id revenue`.  The whole pipeline can then be run in Outerbounds from the command line using the `--with kubernetes` flag like:
 ```uv run <PATH TO FLOW FILE> run --with kubernetes:image=registry.hub.docker.com/jsnydermoz/moz-forecasting:latest```
 
 One nice feature of metaflow is that a specific step can be configured to run in the cloud.  This is done via the `@kubernetes` decorator.  As with the command line argument, the docker image needs to be specified.  It would go before the step decorator and would look somethign like `@kubernetes(image="registry.hub.docker.com/jsnydermoz/moz-forecasting:latest", cpu=1)`
