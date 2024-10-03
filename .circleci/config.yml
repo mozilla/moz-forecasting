@@ -15,14 +15,16 @@ workflows:
     when:
       and:
         - not:
-            equal: [dummy, << pipeline.git.branch >>]
-    jobs:
-      - continuation/continue:
-          configuration_path: .circleci/workflows.yml
-  setup-main:
-    when:
-      equal: [get_outerbound_working, << pipeline.git.branch >>]
+            equal: [main, << pipeline.git.branch >>]
     jobs:
       - continuation/continue:
           configuration_path: .circleci/workflows.yml
           parameters: '{"deploy": true}'
+
+  # setup-main:
+  #   when:
+  #     equal: [get_outerbound_working, << pipeline.git.branch >>]
+  #   jobs:
+  #     - continuation/continue:
+  #         configuration_path: .circleci/workflows.yml
+  #         parameters: '{"deploy": true}'
