@@ -15,7 +15,7 @@ workflows:
     when:
       and:
         - not:
-            equal: [main, << pipeline.git.branch >>]
+            equal: [dummy, << pipeline.git.branch >>]
     jobs:
       - continuation/continue:
           configuration_path: .circleci/workflows.yml
