@@ -80,3 +80,11 @@ jobs:
               run:
                 name: Skip
                 command: echo "Skipped due to path filtering"
+
+workflows:
+  version: 2.1
+  build:
+    jobs:
+      - pytest
+      - linting
+      - deploy-to-private-gcr
