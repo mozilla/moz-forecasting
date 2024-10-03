@@ -3,14 +3,14 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-from datetime import datetime, timedelta
 import os
+from datetime import datetime, timedelta
 
 import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
-from metaflow import FlowSpec, IncludeFile, project, step, Parameter
+from metaflow import FlowSpec, IncludeFile, Parameter, project, step
 
 # Defaults to the project for Outerbounds Deployment
 # To run locally, set to moz-fx-data-bq-data-science on command line before run command
@@ -515,9 +515,9 @@ class MobileAdTilesForecastFlow(FlowSpec):
             rev_forecast_dat["other_revenue"] + rev_forecast_dat["amazon_revenue"]
         )
         rev_forecast_dat["device"] = "mobile"
-        rev_forecast_dat[
-            "submission_month"
-        ] = rev_forecast_dat.automated_kpi_confidence_intervals_submission_month
+        rev_forecast_dat["submission_month"] = (
+            rev_forecast_dat.automated_kpi_confidence_intervals_submission_month
+        )
 
         self.rev_forecast_dat = rev_forecast_dat
 

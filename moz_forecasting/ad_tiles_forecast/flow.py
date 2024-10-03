@@ -1,4 +1,5 @@
 """Flow for the Ad Tiles Forecast."""
+
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -9,7 +10,7 @@ import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
-from metaflow import FlowSpec, IncludeFile, project, step, Parameter
+from metaflow import FlowSpec, IncludeFile, Parameter, project, step
 
 GCP_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
 
@@ -332,7 +333,7 @@ class AdTilesForecastFlow(FlowSpec):
         forecast_predicted_at = set(kpi_forecast["forecast_predicted_at"].values)
         if len(forecast_predicted_at) != 1:
             raise ValueError("Multiple forecast_predicted_at dates")
-        self.forecast_predicted_at = list(forecast_predicted_at)[0]
+        self.forecast_predicted_at = next(iter(forecast_predicted_at))
 
         self.kpi_forecast = kpi_forecast
 
