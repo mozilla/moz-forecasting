@@ -67,6 +67,7 @@ jobs:
                 command: |
                   echo 'export GOOGLE_PROJECT_ID="moz-fx-mfouterbounds-prod-f98d"' >> "$BASH_ENV"
                   echo "export OIDC_SERVICE_ACCOUNT_EMAIL=circle-ci-image-pusher@moz-fx-mfouterbounds-prod-f98d.iam.gserviceaccount.com" >> "$BASH_ENV"
+                  echo "export ID_TOKEN=$(gcloud auth print-identity-token --impersonate-service-account ${GCP_SERVICE_ACCOUNT_EMAIL})" >> "$BASH_ENV"
             - checkout
             - gcp-gcr/gcr-auth:
                 use_oidc: true
