@@ -304,7 +304,8 @@ class AdTilesForecastFlow(FlowSpec):
                     forecast_predicted_at)
             )
         SELECT (tmp_kpi_forecasts.submission_date ) AS submission_month,
-            AVG(tmp_kpi_forecasts.value ) AS cdau
+            forecast_predicted_at,
+            AVG(tmp_kpi_forecasts.value ) AS cdau,
         FROM tmp_kpi_forecasts
         WHERE (
             ((tmp_kpi_forecasts.measure = 'observed')
@@ -318,7 +319,7 @@ class AdTilesForecastFlow(FlowSpec):
         AND tmp_kpi_forecasts.aggregation_period = 'month'
         AND tmp_kpi_forecasts.metric_alias LIKE 'desktop_dau'
         GROUP BY
-            1
+            1,2
         HAVING cdau IS NOT NULL
         """
 
@@ -326,6 +327,12 @@ class AdTilesForecastFlow(FlowSpec):
         query_job = client.query(query)
 
         kpi_forecast = query_job.to_dataframe()
+
+        # get forecast_predicted_at
+        forecast_predicted_at = set(kpi_forecast["forecast_predicted_at"].values)
+        if len(forecast_predicted_at) != 1:
+            raise ValueError("Multiple forecast_predicted_at dates")
+        self.forecast_predicted_at = list(forecast_predicted_at)[0]
 
         self.kpi_forecast = kpi_forecast
 
@@ -589,12 +596,12 @@ class AdTilesForecastFlow(FlowSpec):
         )
 
         write_df["device"] = "desktop"
-        write_df["forecast_month"] = self.first_day_of_current_month.strftime(
-            "%Y-%m-%d"
-        )
+        write_df["forecast_predicted_at"] = self.forecast_predicted_at
+        write_df["forecast_month"] = self.first_day_of_current_month
 
         assert set(write_df.columns) == {
             "forecast_month",
+            "forecast_predicted_at",
             "country",
             "submission_month",
             "inventory_forecast",
@@ -603,14 +610,22 @@ class AdTilesForecastFlow(FlowSpec):
             "device",
             "forecast_type",
         }
-        if self.test_mode:
+        if self.test_mode and GCP_PROJECT_NAME != "moz-fx-mfouterbounds-prod-f98d":
+            # case where testing locally
             output_info = self.config_data["output"]["test"]
+        elif self.test_mode and GCP_PROJECT_NAME == "moz-fx-mfouterbounds-prod-f98d":
+            # case where testing in outerbounds, just want to exit
+            return
         else:
             output_info = self.config_data["output"]["prod"]
         target_table = (
             f"{output_info['project']}.{output_info['database']}.{output_info['table']}"
         )
         job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
+        job_config.schema_update_options = [
+            bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION
+        ]
+
         client = bigquery.Client(project=GCP_PROJECT_NAME)
 
         client.load_table_from_dataframe(write_df, target_table, job_config=job_config)

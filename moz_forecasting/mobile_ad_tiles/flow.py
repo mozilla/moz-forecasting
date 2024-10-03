@@ -77,6 +77,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         automated_kpi_confidence_intervals_estimated_10th_percentile: 10th percentile
         automated_kpi_confidence_intervals_estimated_90th_percentile: 90th percentile
         """
+        forecast_date_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
         query = f"""
         WITH
             most_recent_forecasts AS (
@@ -122,16 +123,13 @@ class MobileAdTilesForecastFlow(FlowSpec):
         WHERE
             CAST(unit AS STRING) = 'month'
             AND REPLACE(CAST(target AS STRING), "_dau", "") = 'mobile'
+            AND CAST(submission_date as STRING) >= '{forecast_date_start}'
         """
 
         client = bigquery.Client(project=GCP_PROJECT_NAME)
         query_job = client.query(query)
 
         mobile_kpi = query_job.to_dataframe()
-        mobile_kpi = mobile_kpi[
-            mobile_kpi.automated_kpi_confidence_intervals_submission_month
-            >= self.first_day_of_current_month.strftime("%Y-%m-%d")
-        ]
         final_forecast_month = mobile_kpi[
             "automated_kpi_confidence_intervals_submission_month"
         ].max()
@@ -156,7 +154,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                 within a country on given day
                 that are using Fenix or Firefox iOS on the release channel
         """
-        forecast_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
+        forecast_start = self.first_day_of_previous_month.strftime("%Y-%m-%d")
         query = f"""CREATE TEMP FUNCTION IsEligible(os STRING,
                                                     version NUMERIC,
                                                     country STRING,
@@ -268,7 +266,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         amazon_clicks: number of clicks on amazon tiles
         other_clicks: number of clicks on non-amazon tiles
         """
-        forecast_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
+        forecast_start = self.first_day_of_previous_month.strftime("%Y-%m-%d")
         countries_string = ",".join(f"'{el}'" for el in self.countries)
         excluded_advertisers_string = ",".join(
             f"'{el}'" for el in self.excluded_advertisers
@@ -401,7 +399,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         - amazon_cpc
         - other_cpc
         """
-        date_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
+        date_start = self.first_day_of_previous_month.strftime("%Y-%m-%d")
         countries_string = ",".join(f"'{el}'" for el in self.countries)
         query = f"""
         with group_ads AS (
@@ -548,10 +546,16 @@ class MobileAdTilesForecastFlow(FlowSpec):
         ]
 
         write_df = self.rev_forecast_dat[output_columns]
-        if self.test_mode:
+
+        if self.test_mode and GCP_PROJECT_NAME != "moz-fx-mfouterbounds-prod-f98d":
+            # case where testing locally
             output_info = self.config_data["output"]["test"]
+        elif self.test_mode and GCP_PROJECT_NAME == "moz-fx-mfouterbounds-prod-f98d":
+            # case where testing in outerbounds, just want to exit
+            return
         else:
             output_info = self.config_data["output"]["prod"]
+
         target_table = (
             f"{output_info['project']}.{output_info['database']}.{output_info['table']}"
         )
