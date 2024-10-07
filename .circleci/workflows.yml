@@ -26,7 +26,7 @@ commands:
 version: 2.1
 
 orbs:
-  gcp-gcr: circleci/gcp-gcr@0.16
+  gcp-gcr: circleci/gcp-gcr@0.16.6
 
 parameters:
   deploy:
@@ -73,7 +73,7 @@ jobs:
             - gcp-gcr/build-image: &private-image
                 image: moz-forecasting
                 tag: ${CIRCLE_TAG:-latest}
-                registry-url: us-west1-docker.pkg.dev
+                registry-url: us-docker.pkg.dev
                 repository: mfouterbounds-prod
             - gcp-gcr/push-image: *private-image
                 
