@@ -87,5 +87,5 @@ workflows:
     jobs:
       - pytest
       - linting
-      - deploy-to-private-gcr
+      - deploy-to-private-gcr:
           context: gcpv2-workload-identity
