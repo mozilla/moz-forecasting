@@ -70,10 +70,11 @@ jobs:
             - checkout
             - gcp-gcr/gcr-auth:
                 use_oidc: true
-            - gcp-gcr/build-image: &private-image
+            - gcp-gcr/build-and-push-image:
                 image: moz-forecasting
                 tag: ${CIRCLE_TAG:-latest}
-            - gcp-gcr/push-image: *private-image
+                registry-url: us-west1-docker.pkg.dev
+                repository: mfouterbounds-prod
       - unless:
           condition: *deploy
           steps:
@@ -89,4 +90,3 @@ workflows:
       - linting
       - deploy-to-private-gcr:
           context: gcpv2-workload-identity
-          
