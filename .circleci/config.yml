@@ -5,11 +5,6 @@ setup: true
 orbs:
   continuation: circleci/continuation@1.0.0
 
-parameters:
-  deploy:
-    type: boolean
-    default: false
-
 workflows:
   pr_checks:
     when:
@@ -19,7 +14,6 @@ workflows:
     jobs:
       - continuation/continue:
           configuration_path: .circleci/workflows.yml
-          parameters: '{"deploy": true}'
 
   # setup-main:
   #   when:
