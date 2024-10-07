@@ -54,35 +54,35 @@ jobs:
       - uv_setup
       - run: uvx ruff@0.6.5 check
       - run: uvx ruff@0.6.5 format
-  deploy-to-private-gcr:
-    executor: ubuntu-machine-executor
-    steps:
-      - when:
-          condition: &deploy
-            or:
-              - << pipeline.parameters.deploy >>
-          steps:
-            - run:
-                name: set env vars
-                command: |
-                  echo 'export GOOGLE_PROJECT_ID="moz-fx-mfouterbounds-prod-f98d"' >> "$BASH_ENV"
-                  echo "export OIDC_SERVICE_ACCOUNT_EMAIL=circle-ci-image-pusher@moz-fx-mfouterbounds-prod-f98d.iam.gserviceaccount.com" >> "$BASH_ENV"
-            - checkout
-            - gcp-gcr/gcr-auth:
-                use_oidc: true
-            - gcp-gcr/build-image: &private-image
-                image: moz-forecasting
-                tag: ${CIRCLE_TAG:-latest}
-                registry-url: us-docker.pkg.dev
-                repository: mfouterbounds-prod
-            - gcp-gcr/push-image: *private-image
+  # deploy-to-private-gcr:
+  #   executor: ubuntu-machine-executor
+  #   steps:
+  #     - when:
+  #         condition: &deploy
+  #           or:
+  #             - << pipeline.parameters.deploy >>
+  #         steps:
+  #           - run:
+  #               name: set env vars
+  #               command: |
+  #                 echo 'export GOOGLE_PROJECT_ID="moz-fx-mfouterbounds-prod-f98d"' >> "$BASH_ENV"
+  #                 echo "export OIDC_SERVICE_ACCOUNT_EMAIL=circle-ci-image-pusher@moz-fx-mfouterbounds-prod-f98d.iam.gserviceaccount.com" >> "$BASH_ENV"
+  #           - checkout
+  #           - gcp-gcr/gcr-auth:
+  #               use_oidc: true
+  #           - gcp-gcr/build-image: &private-image
+  #               image: moz-forecasting
+  #               tag: ${CIRCLE_TAG:-latest}
+  #               registry-url: us-docker.pkg.dev
+  #               repository: mfouterbounds-prod
+  #           - gcp-gcr/push-image: *private-image
                 
-      - unless:
-          condition: *deploy
-          steps:
-              run:
-                name: Skip
-                command: echo "Skipped due to path filtering"
+  #     - unless:
+  #         condition: *deploy
+  #         steps:
+  #             run:
+  #               name: Skip
+  #               command: echo "Skipped due to path filtering"
 
 workflows:
   version: 2.1
@@ -90,6 +90,12 @@ workflows:
     jobs:
       - pytest
       - linting
-      - deploy-to-private-gcr:
-          context: gcpv2-workload-identity
-          
+  build_and_push_image:
+    jobs:
+      - gcp-gcr/build-and-push-image:
+         context: gcpv2-workload-identity
+         image: moz-forecasting
+         tag: ${CIRCLE_TAG:-latest}
+         registry-url: us-docker.pkg.dev
+         repository: mfouterbounds-prod
+         use_oidc: true
