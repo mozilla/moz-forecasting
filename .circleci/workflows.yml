@@ -70,14 +70,13 @@ jobs:
             - checkout
             - gcp-gcr/gcr-auth:
                 use_oidc: true
-            - gcp-gcr/build-image: 
-                image: moz-forecasting
-                tag: ${CIRCLE_TAG:-latest}
-            - gcp-gcr/push-image:
+            - gcp-gcr/build-image: &private-image
                 image: moz-forecasting
                 tag: ${CIRCLE_TAG:-latest}
                 registry-url: us-west1-docker.pkg.dev
                 repository: mfouterbounds-prod
+            - gcp-gcr/push-image: *private-image
+                
       - unless:
           condition: *deploy
           steps:
