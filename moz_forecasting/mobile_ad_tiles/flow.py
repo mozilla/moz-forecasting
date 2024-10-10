@@ -3,19 +3,18 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-from datetime import datetime, timedelta
 import os
+from datetime import datetime, timedelta
 
 import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
-from metaflow import FlowSpec, IncludeFile, project, step
+from metaflow import FlowSpec, IncludeFile, Parameter, project, step
 
-# Defaults to the project for Outerbounds Deployment 
+# Defaults to the project for Outerbounds Deployment
 # To run locally, set to moz-fx-data-bq-data-science on command line before run command
-GCS_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
-GCS_BUCKET_NAME = "bucket-name-here"
+GCP_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
 
 
 @project(name="mobile_ad_tiles_forecast")
@@ -27,6 +26,12 @@ class MobileAdTilesForecastFlow(FlowSpec):
         is_text=True,
         help="configuration for flow",
         default="moz_forecasting/mobile_ad_tiles/config.yaml",
+    )
+
+    test_mode = Parameter(
+        name="test_mode",
+        help="indicates whether or not run should affect production",
+        default=True,
     )
 
     @step
@@ -49,13 +54,16 @@ class MobileAdTilesForecastFlow(FlowSpec):
         self.observed_end_date = last_day_of_previous_month
 
         # tables to get data from
-        self.tile_data_table = "moz-fx-data-bq-data-science.jsnyder.tiles_results_temp"
         self.kpi_forecast_table = (
             "moz-fx-data-shared-prod.telemetry_derived.kpi_forecasts_v0"
         )
         self.active_users_aggregates_table = (
             "moz-fx-data-shared-prod.telemetry.active_users_aggregates"
         )
+        self.event_aggregates_table = (
+            "moz-fx-data-shared-prod.contextual_services.event_aggregates"
+        )
+        self.cpc_table = "mozdata.revenue.revenue_data_admarketplace_cpc"
 
         self.next(self.get_kpi_forecast)
 
@@ -69,6 +77,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         automated_kpi_confidence_intervals_estimated_10th_percentile: 10th percentile
         automated_kpi_confidence_intervals_estimated_90th_percentile: 90th percentile
         """
+        forecast_date_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
         query = f"""
         WITH
             most_recent_forecasts AS (
@@ -114,16 +123,13 @@ class MobileAdTilesForecastFlow(FlowSpec):
         WHERE
             CAST(unit AS STRING) = 'month'
             AND REPLACE(CAST(target AS STRING), "_dau", "") = 'mobile'
+            AND CAST(submission_date as STRING) >= '{forecast_date_start}'
         """
 
-        client = bigquery.Client(project=GCS_PROJECT_NAME)
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
         query_job = client.query(query)
 
         mobile_kpi = query_job.to_dataframe()
-        mobile_kpi = mobile_kpi[
-            mobile_kpi.automated_kpi_confidence_intervals_submission_month
-            >= self.first_day_of_current_month.strftime("%Y-%m-%d")
-        ]
         final_forecast_month = mobile_kpi[
             "automated_kpi_confidence_intervals_submission_month"
         ].max()
@@ -148,7 +154,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                 within a country on given day
                 that are using Fenix or Firefox iOS on the release channel
         """
-        forecast_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
+        forecast_start = self.first_day_of_previous_month.strftime("%Y-%m-%d")
         query = f"""CREATE TEMP FUNCTION IsEligible(os STRING,
                                                     version NUMERIC,
                                                     country STRING,
@@ -193,7 +199,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                             AND submission_date >= "{forecast_start}"
                         GROUP BY
                         submission_date, country, app_name, channel"""
-        client = bigquery.Client(project=GCS_PROJECT_NAME)
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
         query_job = client.query(query)
         dau_raw = query_job.to_dataframe()
 
@@ -260,7 +266,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         amazon_clicks: number of clicks on amazon tiles
         other_clicks: number of clicks on non-amazon tiles
         """
-        forecast_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
+        forecast_start = self.first_day_of_previous_month.strftime("%Y-%m-%d")
         countries_string = ",".join(f"'{el}'" for el in self.countries)
         excluded_advertisers_string = ",".join(
             f"'{el}'" for el in self.excluded_advertisers
@@ -289,7 +295,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                                 0)),
                             0) AS other_interaction_count
                     FROM
-                        mozdata.contextual_services.event_aggregates
+                        {self.event_aggregates_table}
                     WHERE
                         submission_date >= "{forecast_start}"
                         AND form_factor = "phone"
@@ -301,7 +307,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         submission_date,
                         country,
                         event_type"""
-        client = bigquery.Client(project=GCS_PROJECT_NAME)
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
         query_job = client.query(query)
         tile_data = query_job.to_dataframe()
         clicks = tile_data.loc[
@@ -393,8 +399,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         - amazon_cpc
         - other_cpc
         """
-        table_id_1 = "mozdata.revenue.revenue_data_admarketplace"
-        date_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
+        date_start = self.first_day_of_previous_month.strftime("%Y-%m-%d")
         countries_string = ",".join(f"'{el}'" for el in self.countries)
         query = f"""
         with group_ads AS (
@@ -403,7 +408,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
             advertiser,
             SAFE_DIVIDE(COALESCE(SUM(revenue_data_admarketplace.payout ), 0),
                 COALESCE(SUM(revenue_data_admarketplace.valid_clicks ), 0)) AS cpc
-            FROM `{table_id_1}` AS revenue_data_admarketplace
+            FROM `{self.cpc_table}` AS revenue_data_admarketplace
             WHERE
             (revenue_data_admarketplace.adm_date ) >= (DATE('{date_start}'))
             AND (revenue_data_admarketplace.country_code ) IN ({countries_string})
@@ -423,7 +428,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         GROUP BY 1
         """
 
-        client = bigquery.Client(project=GCS_PROJECT_NAME)
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
         query_job = client.query(query)
 
         self.mobile_cpc = query_job.to_dataframe()
@@ -541,10 +546,21 @@ class MobileAdTilesForecastFlow(FlowSpec):
         ]
 
         write_df = self.rev_forecast_dat[output_columns]
-        output_info = self.config_data["output"]
-        target_table = f"{output_info['output_database']}.{output_info['output_table']}"
+
+        if self.test_mode and GCP_PROJECT_NAME != "moz-fx-mfouterbounds-prod-f98d":
+            # case where testing locally
+            output_info = self.config_data["output"]["test"]
+        elif self.test_mode and GCP_PROJECT_NAME == "moz-fx-mfouterbounds-prod-f98d":
+            # case where testing in outerbounds, just want to exit
+            return
+        else:
+            output_info = self.config_data["output"]["prod"]
+
+        target_table = (
+            f"{output_info['project']}.{output_info['database']}.{output_info['table']}"
+        )
         job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-        client = bigquery.Client(project=GCS_PROJECT_NAME)
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
 
         client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
 

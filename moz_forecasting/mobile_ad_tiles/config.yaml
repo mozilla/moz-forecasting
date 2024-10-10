@@ -16,5 +16,11 @@ excluded_advertisers:
   - yandex
 
 output:
-  output_database: jsnyder
-  output_table: mobile_tiles
+  test:
+    project: moz-fx-data-bq-data-science
+    database: jsnyder
+    table: mobile_tiles
+  prod:
+    project: mozdata
+    database: revenue_cat3_analysis
+    table: amp_rpm_forecasts_mobile

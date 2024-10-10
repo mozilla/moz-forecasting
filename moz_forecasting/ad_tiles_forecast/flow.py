@@ -1,18 +1,18 @@
 """Flow for the Ad Tiles Forecast."""
+
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
-
+import os
 from datetime import datetime, timedelta
 
 import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
-from metaflow import FlowSpec, IncludeFile, project, step
+from metaflow import FlowSpec, IncludeFile, Parameter, project, step
 
-GCS_PROJECT_NAME = "moz-fx-data-bq-data-science"
-GCS_BUCKET_NAME = "bucket-name-here"
+GCP_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
 
 
 def get_direct_allocation_df(
@@ -117,6 +117,12 @@ class AdTilesForecastFlow(FlowSpec):
         default="moz_forecasting/ad_tiles_forecast/config.yaml",
     )
 
+    test_mode = Parameter(
+        name="test_mode",
+        help="indicates whether or not run should affect production",
+        default=True,
+    )
+
     @step
     def start(self):
         """
@@ -134,7 +140,6 @@ class AdTilesForecastFlow(FlowSpec):
         self.observed_end_date = last_day_of_previous_month
 
         # tables to get data from
-        self.tile_data_table = "moz-fx-data-bq-data-science.jsnyder.tiles_results_temp"
         self.kpi_forecast_table = (
             "moz-fx-data-shared-prod.telemetry_derived.kpi_forecasts_v0"
         )
@@ -179,7 +184,7 @@ class AdTilesForecastFlow(FlowSpec):
                                 submission_date,
                                 form_factor,
                                 release_channel"""
-        client = bigquery.Client(project=GCS_PROJECT_NAME)
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
         self.inventory_raw = client.query(tile_impression_data_query).to_dataframe()
         self.next(self.get_newtab_visits)
 
@@ -209,7 +214,7 @@ class AdTilesForecastFlow(FlowSpec):
                 GROUP BY
                     submission_month,
                     country_code"""
-        client = bigquery.Client(project=GCS_PROJECT_NAME)
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
         newtab_visits = client.query(query).to_dataframe()
         newtab_visits["submission_month"] = pd.to_datetime(
             newtab_visits["submission_month"]
@@ -283,7 +288,7 @@ class AdTilesForecastFlow(FlowSpec):
                     metric_hub_app_name,
                     metric_hub_slug,
                     MAX(forecast_predicted_at) AS forecast_predicted_at
-                FROM `moz-fx-data-shared-prod.telemetry_derived.kpi_forecasts_v0`
+                FROM `{self.kpi_forecast_table}`
                 GROUP BY aggregation_period,
                     metric_alias,
                     metric_hub_app_name,
@@ -300,7 +305,8 @@ class AdTilesForecastFlow(FlowSpec):
                     forecast_predicted_at)
             )
         SELECT (tmp_kpi_forecasts.submission_date ) AS submission_month,
-            AVG(tmp_kpi_forecasts.value ) AS cdau
+            forecast_predicted_at,
+            AVG(tmp_kpi_forecasts.value ) AS cdau,
         FROM tmp_kpi_forecasts
         WHERE (
             ((tmp_kpi_forecasts.measure = 'observed')
@@ -314,14 +320,20 @@ class AdTilesForecastFlow(FlowSpec):
         AND tmp_kpi_forecasts.aggregation_period = 'month'
         AND tmp_kpi_forecasts.metric_alias LIKE 'desktop_dau'
         GROUP BY
-            1
+            1,2
         HAVING cdau IS NOT NULL
         """
 
-        client = bigquery.Client(project=GCS_PROJECT_NAME)
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
         query_job = client.query(query)
 
         kpi_forecast = query_job.to_dataframe()
+
+        # get forecast_predicted_at
+        forecast_predicted_at = set(kpi_forecast["forecast_predicted_at"].values)
+        if len(forecast_predicted_at) != 1:
+            raise ValueError("Multiple forecast_predicted_at dates")
+        self.forecast_predicted_at = next(iter(forecast_predicted_at))
 
         self.kpi_forecast = kpi_forecast
 
@@ -350,7 +362,7 @@ class AdTilesForecastFlow(FlowSpec):
         2
         """
 
-        client = bigquery.Client(project=GCS_PROJECT_NAME)
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
         query_job = client.query(query)
 
         self.dau_by_country = query_job.to_dataframe()
@@ -585,12 +597,12 @@ class AdTilesForecastFlow(FlowSpec):
         )
 
         write_df["device"] = "desktop"
-        write_df["forecast_month"] = self.first_day_of_current_month.strftime(
-            "%Y-%m-%d"
-        )
+        write_df["forecast_predicted_at"] = self.forecast_predicted_at
+        write_df["forecast_month"] = self.first_day_of_current_month
 
         assert set(write_df.columns) == {
             "forecast_month",
+            "forecast_predicted_at",
             "country",
             "submission_month",
             "inventory_forecast",
@@ -599,10 +611,23 @@ class AdTilesForecastFlow(FlowSpec):
             "device",
             "forecast_type",
         }
-        output_info = self.config_data["output"]
-        target_table = f"{output_info['output_database']}.{output_info['output_table']}"
+        if self.test_mode and GCP_PROJECT_NAME != "moz-fx-mfouterbounds-prod-f98d":
+            # case where testing locally
+            output_info = self.config_data["output"]["test"]
+        elif self.test_mode and GCP_PROJECT_NAME == "moz-fx-mfouterbounds-prod-f98d":
+            # case where testing in outerbounds, just want to exit
+            return
+        else:
+            output_info = self.config_data["output"]["prod"]
+        target_table = (
+            f"{output_info['project']}.{output_info['database']}.{output_info['table']}"
+        )
         job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-        client = bigquery.Client(project=GCS_PROJECT_NAME)
+        job_config.schema_update_options = [
+            bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION
+        ]
+
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
 
         client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
 

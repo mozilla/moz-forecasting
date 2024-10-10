@@ -1,49 +1,24 @@
-
-####################
-# CircleCI configuration reference:
-#   https://circleci.com/docs/2.0/configuration-reference
-####################
-# CircleCI built-in environment variables:
-#   https://circleci.com/docs/2.0/env-vars/#built-in-environment-variables
-####################
-
-commands:
-  uv_setup:
-    steps:
-      - run:
-          name: install uv
-          command: curl -LsSf https://astral.sh/uv/0.4.8/install.sh | sh
-      - run:
-          name: activate_env
-          command: echo 'export PATH="$HOME/.cargo/bin/:$PATH"' >> "$BASH_ENV"
-      - run:
-          name: install dependencies
-          command: echo $PATH
-      - run:  uv sync --frozen
-
-
-
 version: 2.1
 
-jobs:
-  pytest:
-    docker:
-      - image: cimg/python:3.10 # the primary container, where your job's commands are run
-    steps:
-      - checkout
-      - uv_setup
-      - run: uv run pytest
-  linting:
-    docker:
-      - image: cimg/python:3.10 # the primary container, where your job's commands are run
-    steps:
-      - checkout
-      - uv_setup
-      - run: uvx ruff@0.6.5 check
-      - run: uvx ruff@0.6.5 format
+setup: true
+
+orbs:
+  continuation: circleci/continuation@1.0.0
 
 workflows:
   pr_checks:
+    when:
+      and:
+        - not:
+            equal: [main, << pipeline.git.branch >>]
     jobs:
-      - pytest
-      - linting
+      - continuation/continue:
+          configuration_path: .circleci/workflows.yml
+
+  # setup-main:
+  #   when:
+  #     equal: [get_outerbound_working, << pipeline.git.branch >>]
+  #   jobs:
+  #     - continuation/continue:
+  #         configuration_path: .circleci/workflows.yml
+  #         parameters: '{"deploy": true}'
