@@ -150,35 +150,31 @@ class MobileAdTilesForecastFlow(FlowSpec):
             - eligible_share_country: the quotient of eligible clients within a
                 given country to the total number of clients across all countries
                 for each day
-            - eligible_clients: the number of eligible clients
+            - eligible_mobile_tiles_clients: the number of eligible clients
                 within a country on given day
                 that are using Fenix or Firefox iOS on the release channel
         """
         forecast_start = self.first_day_of_previous_month.strftime("%Y-%m-%d")
-        query = f"""CREATE TEMP FUNCTION IsEligible(os STRING,
-                                                    version NUMERIC,
-                                                    country STRING,
-                                                    submission_date DATE)
-                    RETURNS BOOL
-                    AS ((os = "Android"
-                            AND  version > 100
-                            AND (
-                                (country = "US" AND submission_date >= "2022-09-20")
-                                OR (country = "DE" AND submission_date >= "2022-12-05")
-                                OR (country IN ("BR", "CA", "ES",
-                                                    "FR", "GB", "IN", "AU")
-                                        AND submission_date >= "2023-05-15")))
-                        OR (os = "iOS"
-                            AND version > 101
-                            AND (
-                                (country = "US"
-                                    AND submission_date >= "2022-10-04")
-                                OR (country = "DE"
-                                    AND submission_date >= "2022-12-05")
-                                OR (country IN ("BR", "CA", "ES",
-                                                    "FR", "GB", "IN", "AU")
-                                    AND submission_date >= "2023-05-15")
-                            ))) ;
+        elgibility_functions = [
+            x["bq_function"] for x in self.config_data["elgibility"]
+        ]
+        elgibility_string = "\n".join(elgibility_functions)
+
+        elgilibty_function_calls = [
+            (
+                x["function_call"],
+                f"eligible_{x['segment']['platform']}_{x['segment']['forecast']}_clients",
+            )
+            for x in self.config_data["elgibility"]
+        ]
+        call_string = [
+            f"SUM(IF({x[0]}, daily_users, 0)) as {x[1]},"
+            for x in elgilibty_function_calls
+        ]
+        call_string = "\n".join(call_string)
+        query = f"""
+                {elgibility_string}
+
                 SELECT
                         submission_date,
                         country,
@@ -186,12 +182,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                         channel,
                         COALESCE(SUM((dau) ), 0) AS total_active,
                         COALESCE(SUM((daily_users) ), 0) AS total_clients,
-                        SUM(IF(IsEligible(os_grouped,
-                                            app_version_major,
-                                            country,
-                                            submission_date),
-                                        daily_users,
-                                        0)) as eligible_clients,
+                        {call_string}
                         FROM `{self.active_users_aggregates_table}`
                             AS active_users_aggregates
                         WHERE
@@ -203,13 +194,18 @@ class MobileAdTilesForecastFlow(FlowSpec):
         query_job = client.query(query)
         dau_raw = query_job.to_dataframe()
 
+        print(query)
+        print(dau_raw.columns)
+
         # make sure countries with eligible clients
         # is a subset of countries in the config
         eligible_by_country = (
-            dau_raw[["country", "eligible_clients"]].groupby("country").sum()
+            dau_raw[["country", "eligible_mobile_tiles_clients"]]
+            .groupby("country")
+            .sum()
         )
         countries_with_eligible = eligible_by_country[
-            eligible_by_country["eligible_clients"] > 0
+            eligible_by_country["eligible_mobile_tiles_clients"] > 0
         ].index
         if not set(countries_with_eligible) <= set(self.countries):
             extra_countries = ",".join(
@@ -226,7 +222,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
             .reset_index()
         )
         clients_by_day_by_country = (
-            dau_raw[["submission_date", "country", "eligible_clients"]]
+            dau_raw[["submission_date", "country", "eligible_mobile_tiles_clients"]]
             .groupby(["submission_date", "country"])
             .sum()
             .reset_index()
@@ -235,7 +231,8 @@ class MobileAdTilesForecastFlow(FlowSpec):
             clients_by_day_by_country, on="submission_date"
         )
         client_share["eligible_share_country"] = (
-            client_share["eligible_clients"] / client_share["total_clients"]
+            client_share["eligible_mobile_tiles_clients"]
+            / client_share["total_clients"]
         )
 
         population = (
@@ -243,7 +240,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                 dau_raw.app_name.isin(["Fenix", "Firefox iOS"])
                 & dau_raw.country.isin(self.countries)
                 & (dau_raw.channel == "release"),
-                ["submission_date", "country", "eligible_clients"],
+                ["submission_date", "country", "eligible_mobile_tiles_clients"],
             ]
             .groupby(["submission_date", "country"])
             .sum()
@@ -346,10 +343,10 @@ class MobileAdTilesForecastFlow(FlowSpec):
         )
 
         aggregate_data["amazon_clients"] = (
-            aggregate_data["p_amazon"] * aggregate_data["eligible_clients"]
+            aggregate_data["p_amazon"] * aggregate_data["eligible_mobile_tiles_clients"]
         )
         aggregate_data["other_clients"] = (
-            aggregate_data["p_other"] * aggregate_data["eligible_clients"]
+            aggregate_data["p_other"] * aggregate_data["eligible_mobile_tiles_clients"]
         )
 
         aggregate_data["amazon_clicks_per_qdau"] = (

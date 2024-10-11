@@ -270,17 +270,19 @@ class AdTilesForecastFlow(FlowSpec):
     @step
     def get_kpi_forecast(self):
         """Get KPI forecast data."""
-        forecast_date_start = self.observed_end_date.strftime("%Y-%m-%d")
         forecast_date_end_dt = self.observed_end_date.replace(day=1) + relativedelta(
             months=18
         )
         forecast_date_end = forecast_date_end_dt.strftime("%Y-%m-%d")
 
         observed_start_date = self.observed_start_date.strftime("%Y-%m-%d")
-        observed_end_date = self.observed_end_date.strftime("%Y-%m-%d")
 
         # there can be multiple forecasts for a given date
         # joining to most_recent_forecasts selects only the most recent
+        # groupby in last step is because for monthly the current
+        # month will have two records, one for prediction and one forecast
+        # ANY_VALUE selects the first non-null value, so it will
+        # merge this case
         query = f"""
             WITH most_recent_forecasts AS (
                 SELECT aggregation_period,
@@ -308,16 +310,19 @@ class AdTilesForecastFlow(FlowSpec):
                                     PIVOT (SUM(value)
                                     FOR measure
                                         IN ('observed','p10', 'p90', 'mean', 'p50')))
-        SELECT submission_date AS submission_month,
+        SELECT submission_date,
             forecast_predicted_at,
-            observed as observed_dau,
-            p10 as p10_forecast,
-            p90 as p90_forecast,
-            mean as mean_forecast,
-            p50 as median_forecast,
             aggregation_period,
-            REPLACE(CAST(metric_alias AS STRING), "_dau", "") as platform
+            REPLACE(CAST(metric_alias AS STRING), "_dau", "") as platform,
+            ANY_VALUE(observed) as observed_dau,
+            ANY_VALUE(p10) as p10_forecast,
+            ANY_VALUE(p90) as p90_forecast,
+            ANY_VALUE(mean) as mean_forecast,
+            ANY_VALUE(p50) as median_forecast
         FROM pivoted_table
+        WHERE (submission_date >= DATE('{observed_start_date}'))
+            AND (submission_date <= DATE('{forecast_date_end}'))
+        GROUP BY 1,2,3,4
         """
 
         client = bigquery.Client(project=GCP_PROJECT_NAME)
@@ -331,14 +336,13 @@ class AdTilesForecastFlow(FlowSpec):
                 kpi_forecast.platform == "desktop", "forecast_predicted_at"
             ].values
         )
-        print(forecast_predicted_at)
         if len(forecast_predicted_at) != 1:
             raise ValueError("Multiple forecast_predicted_at dates")
         self.forecast_predicted_at = next(iter(forecast_predicted_at))
 
         self.kpi_forecast_monthly = kpi_forecast[
             kpi_forecast["aggregation_period"] == "month"
-        ]
+        ].rename(columns={"submission_date": "submission_month"})
         self.kpi_forecast_daily = kpi_forecast[
             kpi_forecast["aggregation_period"] == "day"
         ]
@@ -604,8 +608,23 @@ class AdTilesForecastFlow(FlowSpec):
         ]
         runs_on_main = sorted(runs_on_main, key=lambda x: x.finished_at)
         main_run = runs_on_main[-1]
-        main_output_df = main_run["end"].task.data.output_df
-        pd.testing.assert_frame_equal(main_output_df, self.output_df)
+        main_output_df = (
+            main_run["end"]
+            .task.data.output_df.sort_values(["submission_month", "country"])
+            .reset_index(drop=True)
+        )
+        branch_output = (
+            self.output_df.rename(columns={"median_forecast": "cdau"})
+            .sort_values(["submission_month", "country"])
+            .reset_index(drop=True)
+        )
+
+        main_columns = set(main_output_df.columns)
+        branch_columns = set(branch_output.columns)
+        assert main_columns == branch_columns
+        pd.testing.assert_frame_equal(
+            main_output_df[list(main_columns)], branch_output[list(main_columns)]
+        )
         self.next(self.end)
 
     @step
