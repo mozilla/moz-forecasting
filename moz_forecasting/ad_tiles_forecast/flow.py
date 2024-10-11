@@ -294,8 +294,8 @@ class AdTilesForecastFlow(FlowSpec):
                     metric_hub_app_name,
                     metric_hub_slug
             ),
-            tmp_kpi_forecasts as (
-            SELECT forecasts.* EXCEPT(forecast_parameters)
+            only_most_recent_kpi_forecasts as (
+            SELECT *
                 FROM `{self.kpi_forecast_table}` AS forecasts
                 JOIN most_recent_forecasts
             USING(aggregation_period,
@@ -303,25 +303,21 @@ class AdTilesForecastFlow(FlowSpec):
                     metric_hub_app_name,
                     metric_hub_slug,
                     forecast_predicted_at)
-            )
-        SELECT (tmp_kpi_forecasts.submission_date ) AS submission_month,
+            ),
+            pivoted_table as (SELECT * FROM only_most_recent_kpi_forecasts
+                                    PIVOT (SUM(value)
+                                    FOR measure
+                                        IN ('observed','p10', 'p90', 'mean', 'p50')))
+        SELECT submission_date AS submission_month,
             forecast_predicted_at,
-            AVG(tmp_kpi_forecasts.value ) AS cdau,
-        FROM tmp_kpi_forecasts
-        WHERE (
-            ((tmp_kpi_forecasts.measure = 'observed')
-                AND (tmp_kpi_forecasts.submission_date >= DATE('{observed_start_date}'))
-                AND (tmp_kpi_forecasts.submission_date < DATE('{observed_end_date}')))
-            OR
-            ((tmp_kpi_forecasts.measure = 'p50')
-                AND (tmp_kpi_forecasts.submission_date >= DATE('{forecast_date_start}'))
-                AND (tmp_kpi_forecasts.submission_date <= DATE('{forecast_date_end}')))
-            )
-        AND tmp_kpi_forecasts.aggregation_period = 'month'
-        AND tmp_kpi_forecasts.metric_alias LIKE 'desktop_dau'
-        GROUP BY
-            1,2
-        HAVING cdau IS NOT NULL
+            observed as observed_dau,
+            p10 as p10_forecast,
+            p90 as p90_forecast,
+            mean as mean_forecast,
+            p50 as median_forecast,
+            aggregation_period,
+            REPLACE(CAST(metric_alias AS STRING), "_dau", "") as platform
+        FROM pivoted_table
         """
 
         client = bigquery.Client(project=GCP_PROJECT_NAME)
@@ -330,12 +326,22 @@ class AdTilesForecastFlow(FlowSpec):
         kpi_forecast = query_job.to_dataframe()
 
         # get forecast_predicted_at
-        forecast_predicted_at = set(kpi_forecast["forecast_predicted_at"].values)
+        forecast_predicted_at = set(
+            kpi_forecast.loc[
+                kpi_forecast.platform == "desktop", "forecast_predicted_at"
+            ].values
+        )
+        print(forecast_predicted_at)
         if len(forecast_predicted_at) != 1:
             raise ValueError("Multiple forecast_predicted_at dates")
         self.forecast_predicted_at = next(iter(forecast_predicted_at))
 
-        self.kpi_forecast = kpi_forecast
+        self.kpi_forecast_monthly = kpi_forecast[
+            kpi_forecast["aggregation_period"] == "month"
+        ]
+        self.kpi_forecast_daily = kpi_forecast[
+            kpi_forecast["aggregation_period"] == "day"
+        ]
 
         self.next(self.get_dau_by_country)
 
@@ -349,17 +355,17 @@ class AdTilesForecastFlow(FlowSpec):
         SELECT
         (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
         IF(country IN ({countries_string}), country, "Other") AS country,
+        IF( app_name = 'Firefox Desktop', 'desktop', 'mobile') as platform,
         COALESCE(SUM((dau) ), 0) AS dau_by_country
         FROM
         `{self.active_users_aggregates_table}` AS active_users_aggregates
         WHERE
-        (app_name ) = 'Firefox Desktop'
+        app_name IN ('Firefox Desktop', "Fenix", "Firefox iOS")
         AND ((submission_date >=
                 DATE_ADD(DATE_TRUNC(CURRENT_DATE('UTC'), MONTH), INTERVAL -12 MONTH)
             AND ( submission_date ) < DATE_TRUNC(CURRENT_DATE('UTC'), MONTH)))
         GROUP BY
-        1,
-        2
+        1,2,3
         """
 
         client = bigquery.Client(project=GCP_PROJECT_NAME)
@@ -375,16 +381,17 @@ class AdTilesForecastFlow(FlowSpec):
         Join observed values for dau and dau_by_country
         to get observed share by market.
         """
-        self.kpi_forecast["submission_month"] = pd.to_datetime(
-            self.kpi_forecast["submission_month"]
+        self.kpi_forecast_monthly["submission_month"] = pd.to_datetime(
+            self.kpi_forecast_monthly["submission_month"]
         )
         self.dau_by_country["submission_month"] = pd.to_datetime(
             self.dau_by_country["submission_month"]
         )
 
-        kpi_forecast_observed = self.kpi_forecast[
-            (self.kpi_forecast.submission_month >= self.observed_start_date)
-            & (self.kpi_forecast.submission_month <= self.observed_end_date)
+        kpi_forecast_observed = self.kpi_forecast_monthly.loc[
+            (self.kpi_forecast_monthly.submission_month >= self.observed_start_date)
+            & (self.kpi_forecast_monthly.submission_month <= self.observed_end_date),
+            ["submission_month", "observed_dau", "platform"],
         ]
 
         dau_live_markets = self.dau_by_country[self.dau_by_country.country != "Other"]
@@ -393,10 +400,12 @@ class AdTilesForecastFlow(FlowSpec):
             kpi_forecast_observed,
             dau_live_markets,
             how="left",
-            on=["submission_month"],
+            on=["submission_month", "platform"],
         )
 
-        hist_dau["share_by_market"] = hist_dau["dau_by_country"] / hist_dau["cdau"]
+        hist_dau["share_by_market"] = (
+            hist_dau["dau_by_country"] / hist_dau["observed_dau"]
+        )
         self.hist_dau = hist_dau
         self.next(self.calculate_observed_dau_by_country)
 
@@ -419,8 +428,11 @@ class AdTilesForecastFlow(FlowSpec):
             ["submission_month", "country", "total_inventory_1and2"],
         ]
 
+        hist_dau = self.hist_dau[self.hist_dau.platform == "desktop"].copy()
+        hist_dau = hist_dau.drop(columns=["platform"])
+
         hist_dau_inv = pd.merge(
-            self.hist_dau,
+            hist_dau,
             inventory_observed,
             how="inner",
             on=["country", "submission_month"],
@@ -445,8 +457,10 @@ class AdTilesForecastFlow(FlowSpec):
         and multiplying on the share_by_market and inv_per_client
         country-level factors
         """
-        kpi_forecast_future = self.kpi_forecast[
-            self.kpi_forecast.submission_month > self.observed_end_date
+        kpi_forecast_future = self.kpi_forecast_monthly.loc[
+            (self.kpi_forecast_monthly.submission_month > self.observed_end_date)
+            & (self.kpi_forecast_monthly.platform == "desktop"),
+            ["submission_month", "median_forecast"],
         ]
         inventory_forecast = pd.merge(
             kpi_forecast_future,
@@ -456,14 +470,15 @@ class AdTilesForecastFlow(FlowSpec):
             [
                 "submission_month",
                 "country",
-                "cdau",
+                "median_forecast",
                 "share_by_market",
                 "inv_per_client",
             ]
         ]
 
         inventory_forecast["country_dau"] = (
-            inventory_forecast["cdau"] * inventory_forecast["share_by_market"]
+            inventory_forecast["median_forecast"]
+            * inventory_forecast["share_by_market"]
         )
         inventory_forecast["inventory_forecast"] = (
             inventory_forecast["country_dau"] * inventory_forecast["inv_per_client"]
@@ -642,7 +657,7 @@ class AdTilesForecastFlow(FlowSpec):
 
         client = bigquery.Client(project=GCP_PROJECT_NAME)
 
-        client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
+        # client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
 
 
 if __name__ == "__main__":
