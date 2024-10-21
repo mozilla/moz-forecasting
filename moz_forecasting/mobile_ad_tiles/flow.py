@@ -6,8 +6,8 @@
 import os
 from datetime import datetime, timedelta
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
@@ -589,11 +589,12 @@ class MobileAdTilesForecastFlow(FlowSpec):
         )
         rev_forecast_dat["device"] = "mobile"
 
+        prefix = "automated_kpi_confidence_intervals_estimated"
         rev_forecast_dat = rev_forecast_dat.rename(
             columns={
-                "p90_forecast": "automated_kpi_confidence_intervals_estimated_90th_percentile",
-                "p10_forecast": "automated_kpi_confidence_intervals_estimated_10th_percentile",
-                "mean_forecast": "automated_kpi_confidence_intervals_estimated_value",
+                "p90_forecast": f"{prefix}_90th_percentile",
+                "p10_forecast": f"{prefix}_10th_percentile",
+                "mean_forecast": f"{prefix}_value",
             }
         )
 
@@ -603,7 +604,8 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
     @step
     def test(self):
-        from metaflow import Step, Run, Flow, Metaflow, namespace
+        """Test."""
+        from metaflow import Flow
 
         runs_on_main = [
             el for el in Flow("MobileAdTilesForecastFlow").runs("main") if el.successful

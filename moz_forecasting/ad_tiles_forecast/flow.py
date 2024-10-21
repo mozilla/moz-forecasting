@@ -6,8 +6,8 @@
 import os
 from datetime import datetime, timedelta
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
@@ -727,7 +727,8 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def test(self):
-        from metaflow import Step, Run, Flow, Metaflow, namespace
+        """Test."""
+        from metaflow import Flow
 
         runs_on_main = [
             el for el in Flow("AdTilesForecastFlow").runs("main") if el.successful
@@ -806,7 +807,7 @@ class AdTilesForecastFlow(FlowSpec):
 
         client = bigquery.Client(project=GCP_PROJECT_NAME)
 
-        # client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
+        client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
 
 
 if __name__ == "__main__":
