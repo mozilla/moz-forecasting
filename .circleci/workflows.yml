@@ -26,7 +26,7 @@ commands:
 version: 2.1
 
 orbs:
-  gcp-gcr: circleci/gcp-gcr@0.16.6
+  gcp-gcr: circleci/gcp-gcr@0.16.7
 
 executors:
   ubuntu-machine-executor:
