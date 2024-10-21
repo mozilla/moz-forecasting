@@ -395,7 +395,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     WHERE
                         submission_date >= "{forecast_start}"
                         AND form_factor = "phone"
-                        AND release_channel = "release"
                         AND event_type in ("impression", "click")
                         AND source = "topsites"
                         AND country IN ({countries_string})
@@ -441,10 +440,19 @@ class MobileAdTilesForecastFlow(FlowSpec):
         - amazon_clicks_per_qdau
         - other_clicks_per_qdau
         """
-        dau_by_country = self.dau_by_country[self.dau_by_country.platform == "mobile"]
+        dau_by_country = self.dau_by_country[
+            self.dau_by_country.platform == "mobile"
+        ].drop(columns="platform")
         aggregate_data = self.events_data.merge(
             dau_by_country, on=["submission_month", "country"]
         )
+
+        previous_month = self.first_day_of_previous_month.strftime(format="%Y-%m")
+
+        # filter to previous month
+        aggregate_data = aggregate_data[
+            aggregate_data.submission_month == previous_month
+        ].drop(columns="submission_month")
 
         aggregate_data["amazon_clients"] = (
             aggregate_data["p_amazon"] * aggregate_data["eligible_mobile_tiles_clients"]
@@ -461,36 +469,16 @@ class MobileAdTilesForecastFlow(FlowSpec):
         )
 
         # in notebook this is mobile_forecasting_data
-        self.usage_by_date_and_country = aggregate_data
-
-        self.next(self.aggregate_usage)
-
-    @step
-    def aggregate_usage(self):
-        """Get usage by country by averaging over last month."""
-        by_country_usage = (
-            self.usage_by_date_and_country[
-                (
-                    pd.to_datetime(
-                        self.usage_by_date_and_country.submission_month, format="%Y-%m"
-                    )
-                    >= self.first_day_of_previous_month
-                )
+        self.usage_by_country = aggregate_data[
+            [
+                "country",
+                "p_amazon",
+                "p_other",
+                "amazon_clicks_per_qdau",
+                "other_clicks_per_qdau",
             ]
-            .groupby("country")[
-                [
-                    "p_amazon",
-                    "p_other",
-                    "amazon_clicks_per_qdau",
-                    "other_clicks_per_qdau",
-                ]
-            ]
-            .mean()
-            .reset_index()
-        )
+        ]
 
-        # in notebook this is last_comp_month
-        self.usage_by_country = by_country_usage
         self.next(self.get_cpcs)
 
     @step

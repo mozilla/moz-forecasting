@@ -390,7 +390,14 @@ class AdTilesForecastFlow(FlowSpec):
         # get forecasted values
         global_dau_forecast_future = global_dau_forecast.loc[
             global_dau_forecast.submission_month > self.observed_end_date,
-            ["submission_month", "median_forecast", "platform"],
+            [
+                "submission_month",
+                "median_forecast",
+                "mean_forecast",
+                "p10_forecast",
+                "p90_forecast",
+                "platform",
+            ],
         ]
         dau_forecast_by_country = pd.merge(
             global_dau_forecast_future, self.dau_factors, how="inner", on=["platform"]
@@ -399,6 +406,9 @@ class AdTilesForecastFlow(FlowSpec):
                 "submission_month",
                 "country",
                 "median_forecast",
+                "mean_forecast",
+                "p10_forecast",
+                "p90_forecast",
                 "share_by_market",
                 "platform",
             ]
@@ -412,6 +422,19 @@ class AdTilesForecastFlow(FlowSpec):
                 dau_forecast_by_country[column]  # elgilibity factor
                 * dau_forecast_by_country["share_by_market"]
                 * dau_forecast_by_country["median_forecast"]
+            )
+
+            # add 90th and 10th percentiles
+            dau_forecast_by_country[forecast_column_name + "_p90"] = (
+                dau_forecast_by_country[column]  # elgilibity factor
+                * dau_forecast_by_country["share_by_market"]
+                * dau_forecast_by_country["p90_forecast"]
+            )
+
+            dau_forecast_by_country[forecast_column_name + "_p10"] = (
+                dau_forecast_by_country[column]  # elgilibity factor
+                * dau_forecast_by_country["share_by_market"]
+                * dau_forecast_by_country["p10_forecast"]
             )
         self.dau_forecast_by_country = dau_forecast_by_country
         self.next(self.get_tile_impression_data)
