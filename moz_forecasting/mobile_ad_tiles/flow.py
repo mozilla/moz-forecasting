@@ -670,6 +670,8 @@ class MobileAdTilesForecastFlow(FlowSpec):
             "other_clicks",
             "other_cpc",
             "other_revenue",
+            "total_clicks",
+            "total_revenue",
         ]
 
         write_df = self.rev_forecast_dat[output_columns]
