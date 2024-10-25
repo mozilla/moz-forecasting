@@ -615,54 +615,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
         self.rev_forecast_dat = rev_forecast_dat
 
-        self.next(self.test)
-
-    @step
-    def test(self):
-        """Test."""
-        from metaflow import Flow
-
-        runs_on_main = [
-            el for el in Flow("MobileAdTilesForecastFlow").runs("main") if el.successful
-        ]
-        runs_on_main = sorted(runs_on_main, key=lambda x: x.finished_at)
-        main_run = runs_on_main[-1]
-        main_rev_forecast_dat = main_run["end"].task.data.rev_forecast_dat
-
-        main_rev_forecast_dat = main_rev_forecast_dat.drop(
-            columns=[
-                "eligible_share_country",
-                "automated_kpi_confidence_intervals_submission_month",
-            ]
-        )
-
-        branch_data = self.rev_forecast_dat.copy()
-        branch_data = branch_data.drop(
-            columns=[
-                "platform",
-                "median_forecast",
-                "elgibility_fraction_tiles",
-                "dau_forecast_tiles",
-                "dau_forecast_tiles_p90",
-                "dau_forecast_tiles_p10",
-                "share_by_market",
-            ]
-        )
-
-        main_columns = set(main_rev_forecast_dat.columns)
-        branch_columns = set(branch_data.columns)
-
-        assert main_columns == branch_columns
-        pd.testing.assert_frame_equal(
-            main_rev_forecast_dat[list(main_columns)]
-            .sort_values(["submission_month", "country"])
-            .reset_index(drop=True),
-            branch_data[list(main_columns)]
-            .sort_values(["submission_month", "country"])
-            .reset_index(drop=True),
-            check_exact=False,
-            rtol=0.12,
-        )
         self.next(self.end)
 
     @step

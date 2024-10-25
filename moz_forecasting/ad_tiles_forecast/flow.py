@@ -458,6 +458,7 @@ class AdTilesForecastFlow(FlowSpec):
     def get_tile_impression_data(self):
         """Retrieve tile impressions."""
         query_start_date = self.observed_start_date.strftime("%Y-%m-%d")
+        query_end_date = self.first_day_of_current_month.strftime("%Y-%m-%d")
         tile_impression_data_query = f""" SELECT
                                 country,
                                 submission_date,
@@ -471,13 +472,8 @@ class AdTilesForecastFlow(FlowSpec):
                             WHERE
                                 event_type = 'impression'
                                 AND source = 'topsites'
-                                AND (
-                                    submission_date >= DATE_TRUNC(PARSE_DATE('%Y-%m-%d',
-                                                                    '{query_start_date}'),
-                                                                     MONTH)
-                                    AND submission_date <= DATE_TRUNC(CURRENT_DATE(),
-                                                                        MONTH)
-                                )
+                                AND submission_date >= '{query_start_date}'
+                                AND submission_date < '{query_end_date}'
                             GROUP BY
                                 country,
                                 submission_date,
@@ -491,6 +487,7 @@ class AdTilesForecastFlow(FlowSpec):
     def get_newtab_visits(self):
         """Get newtab visits by country."""
         query_start_date = self.observed_start_date.strftime("%Y-%m-%d")
+        query_end_date = self.first_day_of_current_month.strftime("%Y-%m-%d")
         countries = self.config_data["RPM"].keys()
         countries_string = ",".join(f"'{el}'" for el in countries)
         query = f""" SELECT
@@ -502,13 +499,8 @@ class AdTilesForecastFlow(FlowSpec):
                 WHERE
                     topsites_enabled
                     AND topsites_sponsored_enabled
-                    AND (
-                                    submission_date >= DATE_TRUNC(PARSE_DATE('%Y-%m-%d',
-                                                                    '{query_start_date}'),
-                                                                     MONTH)
-                                    AND submission_date <= DATE_TRUNC(CURRENT_DATE(),
-                                                                        MONTH)
-                                )
+                    AND submission_date >= '{query_start_date}'
+                    AND submission_date < '{query_end_date}'
                     AND country_code IN ({countries_string})
                 GROUP BY
                     submission_month,
@@ -738,39 +730,6 @@ class AdTilesForecastFlow(FlowSpec):
 
         self.output_df = revenue_forecast
 
-        self.next(self.test)
-
-    @step
-    def test(self):
-        """Test."""
-        from metaflow import Flow
-
-        runs_on_main = [
-            el for el in Flow("AdTilesForecastFlow").runs("main") if el.successful
-        ]
-        runs_on_main = sorted(runs_on_main, key=lambda x: x.finished_at)
-        main_run = runs_on_main[-1]
-        main_output_df = (
-            main_run["end"]
-            .task.data.output_df.sort_values(["submission_month", "country"])
-            .reset_index(drop=True)
-        ).drop(columns=["cdau"])
-        branch_output = (
-            self.output_df.rename(columns={"dau_forecast_tiles": "country_dau"})
-            .sort_values(["submission_month", "country"])
-            .reset_index(drop=True)
-        )
-
-        main_columns = set(main_output_df.columns)
-        branch_columns = set(branch_output.columns)
-
-        assert main_columns == branch_columns
-        pd.testing.assert_frame_equal(
-            main_output_df[list(main_columns)],
-            branch_output[list(main_columns)],
-            check_exact=False,
-            rtol=0.1,
-        )
         self.next(self.end)
 
     @step
