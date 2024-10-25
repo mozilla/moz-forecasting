@@ -64,7 +64,11 @@ class MobileAdTilesForecastFlow(FlowSpec):
         last_day_of_previous_month = self.first_day_of_current_month - timedelta(days=1)
         first_day_of_previous_month = last_day_of_previous_month.replace(day=1)
         self.first_day_of_previous_month = first_day_of_previous_month
-        self.observed_start_date = first_day_of_previous_month - relativedelta(years=1)
+
+        observed_months = self.config_data["observed_months"]
+        self.observed_start_date = first_day_of_previous_month - relativedelta(
+            months=observed_months
+        )
         self.observed_end_date = last_day_of_previous_month
 
         # tables to get data from

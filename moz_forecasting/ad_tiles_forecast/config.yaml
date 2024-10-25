@@ -1,3 +1,6 @@
+# number of months of historical data to average over to get factors
+observed_months: 12
+
 # Revenue per Mille, agreed contractually with Admarketplace.
 RPM:
   AU: 0.099
