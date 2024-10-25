@@ -382,11 +382,16 @@ class MobileAdTilesForecastFlow(FlowSpec):
     @step
     def aggregate_usage(self):
         """Get usage by country by averaging over last month."""
+        # get just the last month of data
         by_country_usage = (
             self.usage_by_date_and_country[
                 (
                     self.usage_by_date_and_country.submission_date
                     >= self.first_day_of_previous_month
+                )
+                & (
+                    self.usage_by_date_and_country.submission_date
+                    < self.first_day_of_current_month
                 )
             ]
             .groupby("country")[
