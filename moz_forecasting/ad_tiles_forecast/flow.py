@@ -200,6 +200,7 @@ class AdTilesForecastFlow(FlowSpec):
         forecast_date_end = forecast_date_end_dt.strftime("%Y-%m-%d")
 
         observed_start_date = self.observed_start_date.strftime("%Y-%m-%d")
+        observed_end_date = self.observed_end_date.strftime("%Y-%m-%d")
 
         # first get the global KPI forecast
         # there can be multiple forecasts for a given date
@@ -216,6 +217,7 @@ class AdTilesForecastFlow(FlowSpec):
                     metric_hub_slug,
                     MAX(forecast_predicted_at) AS forecast_predicted_at
                 FROM `{self.kpi_forecast_table}`
+                WHERE forecast_predicted_at <= '{observed_end_date}'
                 GROUP BY aggregation_period,
                     metric_alias,
                     metric_hub_app_name,
