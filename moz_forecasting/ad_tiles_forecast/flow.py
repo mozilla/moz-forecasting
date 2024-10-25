@@ -124,6 +124,14 @@ class AdTilesForecastFlow(FlowSpec):
         default=True,
     )
 
+    write = Parameter(name="write", help="whether or not to write to BQ", default=False)
+
+    set_forecast_month = Parameter(
+        name="forecast_month",
+        help="indicate historical month to set forecast date to in %Y-%m format",
+        default=None,
+    )
+
     @step
     def start(self):
         """
@@ -134,7 +142,12 @@ class AdTilesForecastFlow(FlowSpec):
         # load config
         self.config_data = yaml.safe_load(self.config)
 
-        self.first_day_of_current_month = datetime.today().replace(day=1)
+        if not self.set_forecast_month:
+            self.first_day_of_current_month = datetime.today().replace(day=1)
+        else:
+            self.first_day_of_current_month = datetime.strptime(
+                self.set_forecast_month + "-01", "%Y-%m-%d"
+            )
         last_day_of_previous_month = self.first_day_of_current_month - timedelta(days=1)
         first_day_of_previous_month = last_day_of_previous_month.replace(day=1)
         self.observed_start_date = first_day_of_previous_month - relativedelta(years=1)
@@ -789,6 +802,9 @@ class AdTilesForecastFlow(FlowSpec):
             "device",
             "forecast_type",
         }
+        if not self.write:
+            return
+
         if self.test_mode and GCP_PROJECT_NAME != "moz-fx-mfouterbounds-prod-f98d":
             # case where testing locally
             output_info = self.config_data["output"]["test"]

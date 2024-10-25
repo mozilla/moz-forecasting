@@ -35,6 +35,14 @@ class MobileAdTilesForecastFlow(FlowSpec):
         default=True,
     )
 
+    write = Parameter(name="write", help="whether or not to write to BQ", default=False)
+
+    set_forecast_month = Parameter(
+        name="forecast_month",
+        help="indicate historical month to set forecast date to in %Y-%m format",
+        default=None,
+    )
+
     @step
     def start(self):
         """
@@ -47,7 +55,12 @@ class MobileAdTilesForecastFlow(FlowSpec):
         self.countries = self.config_data["countries"]
         self.excluded_advertisers = self.config_data["excluded_advertisers"]
 
-        self.first_day_of_current_month = datetime.today().replace(day=1)
+        if not self.set_forecast_month:
+            self.first_day_of_current_month = datetime.today().replace(day=1)
+        else:
+            self.first_day_of_current_month = datetime.strptime(
+                self.set_forecast_month + "-01", "%Y-%m-%d"
+            )
         last_day_of_previous_month = self.first_day_of_current_month - timedelta(days=1)
         first_day_of_previous_month = last_day_of_previous_month.replace(day=1)
         self.first_day_of_previous_month = first_day_of_previous_month
@@ -99,6 +112,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         forecast_date_end = forecast_date_end_dt.strftime("%Y-%m-%d")
 
         observed_start_date = self.observed_start_date.strftime("%Y-%m-%d")
+        observed_end_date = self.observed_end_date.strftime("%Y-%m-%d")
 
         # first get the global KPI forecast
         # there can be multiple forecasts for a given date
@@ -115,6 +129,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     metric_hub_slug,
                     MAX(forecast_predicted_at) AS forecast_predicted_at
                 FROM `{self.kpi_forecast_table}`
+                WHERE forecast_predicted_at <= '{observed_end_date}'
                 GROUP BY aggregation_period,
                     metric_alias,
                     metric_hub_app_name,
@@ -675,6 +690,9 @@ class MobileAdTilesForecastFlow(FlowSpec):
         ]
 
         write_df = self.rev_forecast_dat[output_columns]
+
+        if not self.write:
+            return
 
         if self.test_mode and GCP_PROJECT_NAME != "moz-fx-mfouterbounds-prod-f98d":
             # case where testing locally
