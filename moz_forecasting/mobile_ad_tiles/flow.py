@@ -169,7 +169,8 @@ class MobileAdTilesForecastFlow(FlowSpec):
                 within a country on given day
                 that are using Fenix or Firefox iOS on the release channel
         """
-        forecast_start = self.first_day_of_previous_month.strftime("%Y-%m-%d")
+        first_day_previous_month = self.first_day_of_previous_month.strftime("%Y-%m-%d")
+        first_day_current_month = self.first_day_of_current_month.strftime("%Y-%m-%d")
         query = f"""CREATE TEMP FUNCTION IsEligible(os STRING,
                                                     version NUMERIC,
                                                     country STRING,
@@ -211,7 +212,8 @@ class MobileAdTilesForecastFlow(FlowSpec):
                             AS active_users_aggregates
                         WHERE
                         os_grouped in ("iOS", "Android")
-                            AND submission_date >= "{forecast_start}"
+                            AND submission_date >= "{first_day_previous_month}"
+                            AND submission_date < "{first_day_current_month}"
                         GROUP BY
                         submission_date, country, app_name, channel"""
         client = bigquery.Client(project=GCP_PROJECT_NAME)
@@ -382,11 +384,16 @@ class MobileAdTilesForecastFlow(FlowSpec):
     @step
     def aggregate_usage(self):
         """Get usage by country by averaging over last month."""
+        # get just the last month of data
         by_country_usage = (
             self.usage_by_date_and_country[
                 (
                     self.usage_by_date_and_country.submission_date
                     >= self.first_day_of_previous_month
+                )
+                & (
+                    self.usage_by_date_and_country.submission_date
+                    < self.first_day_of_current_month
                 )
             ]
             .groupby("country")[
