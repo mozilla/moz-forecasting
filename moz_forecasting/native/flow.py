@@ -336,26 +336,26 @@ class NativeForecastFlow(FlowSpec):
                 "eligibility_fraction", "dau_forecast"
             )
             dau_forecast_by_country[forecast_column_name] = (
-                dau_forecast_by_country[column]  # elgilibity factor
+                dau_forecast_by_country[column]  # eligibility factor
                 * dau_forecast_by_country["share_by_market"]
                 * dau_forecast_by_country["median_forecast"]
             )
 
             # add 90th and 10th percentiles
             dau_forecast_by_country[forecast_column_name + "_p90"] = (
-                dau_forecast_by_country[column]  # elgilibity factor
+                dau_forecast_by_country[column]  # eligibility factor
                 * dau_forecast_by_country["share_by_market"]
                 * dau_forecast_by_country["p90_forecast"]
             )
 
             dau_forecast_by_country[forecast_column_name + "_p10"] = (
-                dau_forecast_by_country[column]  # elgilibity factor
+                dau_forecast_by_country[column]  # eligibility factor
                 * dau_forecast_by_country["share_by_market"]
                 * dau_forecast_by_country["p10_forecast"]
             )
 
             dau_forecast_by_country[forecast_column_name + "_observed"] = (
-                dau_forecast_by_country[column]  # elgilibity factor
+                dau_forecast_by_country[column]  # eligibility factor
                 * dau_forecast_by_country["share_by_market"]
                 * dau_forecast_by_country["observed_dau"]
             )
