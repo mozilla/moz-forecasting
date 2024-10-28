@@ -34,6 +34,14 @@ class MobileAdTilesForecastFlow(FlowSpec):
         default=True,
     )
 
+    write = Parameter(name="write", help="whether or not to write to BQ", default=False)
+
+    set_forecast_month = Parameter(
+        name="forecast_month",
+        help="indicate historical month to set forecast date to in %Y-%m format",
+        default=None,
+    )
+
     @step
     def start(self):
         """
@@ -46,7 +54,12 @@ class MobileAdTilesForecastFlow(FlowSpec):
         self.countries = self.config_data["countries"]
         self.excluded_advertisers = self.config_data["excluded_advertisers"]
 
-        self.first_day_of_current_month = datetime.today().replace(day=1)
+        if not self.set_forecast_month:
+            self.first_day_of_current_month = datetime.today().replace(day=1)
+        else:
+            self.first_day_of_current_month = datetime.strptime(
+                self.set_forecast_month + "-01", "%Y-%m-%d"
+            )
         last_day_of_previous_month = self.first_day_of_current_month - timedelta(days=1)
         first_day_of_previous_month = last_day_of_previous_month.replace(day=1)
         self.first_day_of_previous_month = first_day_of_previous_month
@@ -78,6 +91,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         automated_kpi_confidence_intervals_estimated_90th_percentile: 90th percentile
         """
         forecast_date_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
+        observed_end_date = self.observed_end_date.strftime("%Y-%m-%d")
         query = f"""
         WITH
             most_recent_forecasts AS (
@@ -87,6 +101,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     metric_hub_slug,
                     MAX(forecast_predicted_at) AS forecast_predicted_at
                 FROM `{self.kpi_forecast_table}`
+                WHERE forecast_predicted_at <= '{observed_end_date}'
                 GROUP BY aggregation_period,
                     metric_alias,
                     metric_hub_app_name,
@@ -154,7 +169,8 @@ class MobileAdTilesForecastFlow(FlowSpec):
                 within a country on given day
                 that are using Fenix or Firefox iOS on the release channel
         """
-        forecast_start = self.first_day_of_previous_month.strftime("%Y-%m-%d")
+        first_day_previous_month = self.first_day_of_previous_month.strftime("%Y-%m-%d")
+        first_day_current_month = self.first_day_of_current_month.strftime("%Y-%m-%d")
         query = f"""CREATE TEMP FUNCTION IsEligible(os STRING,
                                                     version NUMERIC,
                                                     country STRING,
@@ -196,7 +212,8 @@ class MobileAdTilesForecastFlow(FlowSpec):
                             AS active_users_aggregates
                         WHERE
                         os_grouped in ("iOS", "Android")
-                            AND submission_date >= "{forecast_start}"
+                            AND submission_date >= "{first_day_previous_month}"
+                            AND submission_date < "{first_day_current_month}"
                         GROUP BY
                         submission_date, country, app_name, channel"""
         client = bigquery.Client(project=GCP_PROJECT_NAME)
@@ -367,11 +384,16 @@ class MobileAdTilesForecastFlow(FlowSpec):
     @step
     def aggregate_usage(self):
         """Get usage by country by averaging over last month."""
+        # get just the last month of data
         by_country_usage = (
             self.usage_by_date_and_country[
                 (
                     self.usage_by_date_and_country.submission_date
                     >= self.first_day_of_previous_month
+                )
+                & (
+                    self.usage_by_date_and_country.submission_date
+                    < self.first_day_of_current_month
                 )
             ]
             .groupby("country")[
@@ -515,9 +537,9 @@ class MobileAdTilesForecastFlow(FlowSpec):
             rev_forecast_dat["other_revenue"] + rev_forecast_dat["amazon_revenue"]
         )
         rev_forecast_dat["device"] = "mobile"
-        rev_forecast_dat["submission_month"] = (
-            rev_forecast_dat.automated_kpi_confidence_intervals_submission_month
-        )
+        rev_forecast_dat[
+            "submission_month"
+        ] = rev_forecast_dat.automated_kpi_confidence_intervals_submission_month
 
         self.rev_forecast_dat = rev_forecast_dat
 
@@ -546,6 +568,9 @@ class MobileAdTilesForecastFlow(FlowSpec):
         ]
 
         write_df = self.rev_forecast_dat[output_columns]
+
+        if not self.write:
+            return
 
         if self.test_mode and GCP_PROJECT_NAME != "moz-fx-mfouterbounds-prod-f98d":
             # case where testing locally
