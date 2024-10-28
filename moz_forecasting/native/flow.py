@@ -382,6 +382,7 @@ class NativeForecastFlow(FlowSpec):
                         submission_date >= '{observed_start_date}'
                         AND submission_date <= '{observed_end_date}'
                         AND country_code IN ({countries_string})
+                        AND browser_name = 'Firefox Desktop'
                         GROUP BY
                         1,2"""
 
