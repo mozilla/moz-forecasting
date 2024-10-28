@@ -99,7 +99,7 @@ class NativeForecastFlow(FlowSpec):
 
         The ultimate outcome is creating columns of the form
         dau_forecast_<product> where product is specified as a key under
-        the `elgibility` field in the config.  For each product, elgibility
+        the `eligibility` field in the config.  For each product, eligibility
         rules can be specified for desktop and mobile.
 
         The dau forecast is created by multiplying the global dau
@@ -199,17 +199,17 @@ class NativeForecastFlow(FlowSpec):
 
         # get dau by country from events_users_aggregates
 
-        # extract elgibility functions from config
+        # extract eligibility functions from config
         # and turn them into a string that can be used in query
         # mobile and desktop each get their own columns
         # when counting eligible daily users for each product
         eligibility_functions = []
         eligibility_function_calls = []
         # iterate over products in the config
-        for forecast, elgibility_data in self.config_data["elgibility"].items():
+        for forecast, eligibility_data in self.config_data["eligibility"].items():
             # currently only support partitioning by platform
             for platform in ["mobile", "desktop"]:
-                partition_data = elgibility_data[platform]
+                partition_data = eligibility_data[platform]
                 eligibility_functions.append(partition_data["bq_function"])
 
                 eligibility_function_calls.append(
@@ -222,10 +222,10 @@ class NativeForecastFlow(FlowSpec):
             f"SUM(IF({x[0]}, daily_users, 0)) as {x[1]},"
             for x in eligibility_function_calls
         ]
-        elgibility_string = "\n".join(eligibility_functions)
+        eligibility_string = "\n".join(eligibility_functions)
         call_string = "\n".join(call_string)
         query = f"""
-                {elgibility_string}
+                {eligibility_string}
 
                 SELECT
                         (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
@@ -271,8 +271,8 @@ class NativeForecastFlow(FlowSpec):
         # for each product, add a column with a count of eligible
         # daily users for that product
         new_columns = []
-        for forecast in self.config_data["elgibility"]:
-            output_column_name = f"elgibility_fraction_{forecast}"
+        for forecast in self.config_data["eligibility"]:
+            output_column_name = f"eligibility_fraction_{forecast}"
             # create the column and fill in values for mobile and desktop separately
             global_dau_forecast_observed[output_column_name] = np.nan
             new_columns.append(output_column_name)
@@ -335,7 +335,7 @@ class NativeForecastFlow(FlowSpec):
 
         # calculate by-country forecast
         for column in new_columns:
-            forecast_column_name = column.replace("elgibility_fraction", "dau_forecast")
+            forecast_column_name = column.replace("eligibility_fraction", "dau_forecast")
             dau_forecast_by_country[forecast_column_name] = (
                 dau_forecast_by_country[column]  # elgilibity factor
                 * dau_forecast_by_country["share_by_market"]

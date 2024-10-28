@@ -1,5 +1,5 @@
 # elgilibity rules for different product/platform combos
-elgibility:
+eligibility:
   native:
     mobile:
       function_call: IsElgibleNativeMobile()
