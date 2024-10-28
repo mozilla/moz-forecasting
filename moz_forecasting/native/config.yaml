@@ -23,5 +23,5 @@ output:
     table: native_forecast
   prod:
     project: mozdata
-    database: revenue_cat3_analysis
+    database: analysis
     table: native_forecast

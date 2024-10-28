@@ -22,5 +22,5 @@ output:
     table: mobile_tiles
   prod:
     project: mozdata
-    database: revenue_cat3_analysis
+    database: analysis
     table: amp_rpm_forecasts_mobile
