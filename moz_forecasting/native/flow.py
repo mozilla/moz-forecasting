@@ -72,9 +72,6 @@ class NativeForecastFlow(FlowSpec):
         self.event_aggregates_table = (
             "moz-fx-data-shared-prod.contextual_services.event_aggregates"
         )
-        self.newtab_aggregates_table = (
-            "mozdata.telemetry.newtab_clients_daily_aggregates"
-        )
 
         self.newtab_clients_table = "mozdata.telemetry.newtab_clients_daily"
 
