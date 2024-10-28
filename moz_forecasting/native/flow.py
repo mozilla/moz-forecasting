@@ -332,7 +332,9 @@ class NativeForecastFlow(FlowSpec):
 
         # calculate by-country forecast
         for column in new_columns:
-            forecast_column_name = column.replace("eligibility_fraction", "dau_forecast")
+            forecast_column_name = column.replace(
+                "eligibility_fraction", "dau_forecast"
+            )
             dau_forecast_by_country[forecast_column_name] = (
                 dau_forecast_by_country[column]  # elgilibity factor
                 * dau_forecast_by_country["share_by_market"]
