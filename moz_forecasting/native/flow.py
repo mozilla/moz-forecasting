@@ -16,22 +16,6 @@ from metaflow import FlowSpec, IncludeFile, Parameter, project, step
 GCP_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
 
 
-def vectorized_date_to_month(series: pd.Series) -> pd.Series:
-    """Turn datetime into the first day of the corresponding month.
-
-    Parameters
-    ----------
-    series : pd.Series
-       series of datetimes
-
-    Returns
-    -------
-    pd.Series
-        datetimes set to the first day of the month
-    """
-    return pd.to_datetime({"year": series.dt.year, "month": series.dt.month, "day": 1})
-
-
 @project(name="ad_tiles_forecast")
 class NativeForecastFlow(FlowSpec):
     """Flow for ads tiles forecasting."""
@@ -67,15 +51,12 @@ class NativeForecastFlow(FlowSpec):
         # load config
         self.config_data = yaml.safe_load(self.config)
 
-        print(self.set_forecast_month)
-
         if not self.set_forecast_month:
             self.first_day_of_current_month = datetime.today().replace(day=1)
         else:
             self.first_day_of_current_month = datetime.strptime(
                 self.set_forecast_month + "-01", "%Y-%m-%d"
             )
-        print(self.first_day_of_current_month)
         last_day_of_previous_month = self.first_day_of_current_month - timedelta(days=1)
         first_day_of_previous_month = last_day_of_previous_month.replace(day=1)
         self.observed_start_date = first_day_of_previous_month - relativedelta(years=1)
