@@ -423,9 +423,16 @@ class NativeForecastFlow(FlowSpec):
         ]
         desktop_dau_by_country = desktop_dau_by_country.drop(columns="platform")
         forecast = desktop_dau_by_country.merge(self.impressions_to_spoc, on="country")
-        forecast["native_impressions"] = (
-            forecast["ratio_newtab_impressions_with_spocpocket_to_dou"]
-            * forecast["dau_forecast_native"]
+        forecast["newtab_impressions_with_spocs_enabled"] = (
+            (
+                forecast["ratio_newtab_impressions_with_spocpocket_to_dou"]
+                * forecast["dau_forecast_native"]
+            )
+            .round()
+            .astype("Int64")
+        )
+        forecast["spoc_inventory_forecast"] = (
+            forecast["newtab_impressions_with_spocs_enabled"] * 6
         )
         self.forecast = forecast
         self.next(self.end)
@@ -437,7 +444,8 @@ class NativeForecastFlow(FlowSpec):
             [
                 "country",
                 "submission_month",
-                "native_impressions",
+                "newtab_impressions_with_spocs_enabled",
+                "spoc_inventory_forecast",
             ]
         ]
 
@@ -450,7 +458,8 @@ class NativeForecastFlow(FlowSpec):
             "forecast_predicted_at",
             "country",
             "submission_month",
-            "native_impressions",
+            "newtab_impressions_with_spocs_enabled",
+            "spoc_inventory_forecast",
             "device",
         }
         if self.write:
