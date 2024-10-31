@@ -374,9 +374,10 @@ class NativeForecastFlow(FlowSpec):
         query = f"""SELECT
                         (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
                         country_code as country,
-                            COALESCE(SUM(IF(pocket_sponsored_stories_enabled,
+                            COALESCE(SUM(IF(pocket_enabled AND pocket_sponsored_stories_enabled,
                             newtab_visit_count,
-                            0)), 0) AS newtab_impressions_with_spocs
+                            0)), 0) AS newtab_impressions_with_spocs,
+                        SUM(sponsored_pocket_impressions) as sponsored_pocket_impressions
                         FROM `{self.newtab_clients_table}`
                         WHERE
                         submission_date >= '{observed_start_date}'
@@ -406,9 +407,20 @@ class NativeForecastFlow(FlowSpec):
             / impressions_with_dau["total_active"]
         )
 
+        impressions_with_dau["ratio_spoc_impressions_to_dou"] = (
+            impressions_with_dau["sponsored_pocket_impressions"]
+            / impressions_with_dau["total_active"]
+        )
+
+        self.impressions_with_dau = impressions_with_dau
+
         self.impressions_to_spoc = (
             impressions_with_dau[
-                ["country", "ratio_newtab_impressions_with_spocpocket_to_dou"]
+                [
+                    "country",
+                    "ratio_newtab_impressions_with_spocpocket_to_dou",
+                    "ratio_spoc_impressions_to_dou",
+                ]
             ]
             .groupby("country", as_index=False)
             .mean()
@@ -434,6 +446,15 @@ class NativeForecastFlow(FlowSpec):
         forecast["spoc_inventory_forecast"] = (
             forecast["newtab_impressions_with_spocs_enabled"] * 6
         )
+
+        forecast["spoc_impression_forecast"] = (
+            (
+                forecast["ratio_spoc_impressions_to_dou"]
+                * forecast["dau_forecast_native"]
+            )
+            .round()
+            .astype("Int64")
+        )
         self.forecast = forecast
         self.next(self.end)
 
@@ -446,6 +467,7 @@ class NativeForecastFlow(FlowSpec):
                 "submission_month",
                 "newtab_impressions_with_spocs_enabled",
                 "spoc_inventory_forecast",
+                "spoc_impression_forecast",
             ]
         ]
 
@@ -460,6 +482,7 @@ class NativeForecastFlow(FlowSpec):
             "submission_month",
             "newtab_impressions_with_spocs_enabled",
             "spoc_inventory_forecast",
+            "spoc_impression_forecast",
             "device",
         }
         if self.write:
