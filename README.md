@@ -12,6 +12,8 @@ There are additionally helper functions in (TBD when kpi_forecasting branch gets
 
 This project uses [uv](https://docs.astral.sh/uv/) for project and dependency management.  To be able to use it you'll need to have it installed on the system you're using.  This is very easy to do with pip (`pip install uv`).  Once it's installed, you can install the new dependencies in a virtualenv with `uv sync` in the root directory of the project.  This will create a new virtual environment in a new `.venv` directory.
 
+To use darts, there some additionaly dependencies you may need.  For example, installing libomp on a mac with homebrew with `brew install libomp`
+
 Once the virtualenv is set up, a pipeline can be run locally with `uv run <PATH TO FLOW FILE> run`
 
 To run locally the `GCP_PROJECT_NAME` environment variable must be set to a profile that the user can create a client from. For most people data scientists `mozdata` will work.  This can be set via an rc file with the command `export GCP_PROJECT_NAME=mozdata`, or it can be put in front of the command to run the job like `METAFLOW_PROFILE=local GCP_PROJECT_NAME=mozdata uv run flows/ad_tiles_forecast.py run`
