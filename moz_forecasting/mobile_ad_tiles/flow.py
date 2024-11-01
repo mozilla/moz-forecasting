@@ -537,9 +537,9 @@ class MobileAdTilesForecastFlow(FlowSpec):
             rev_forecast_dat["other_revenue"] + rev_forecast_dat["amazon_revenue"]
         )
         rev_forecast_dat["device"] = "mobile"
-        rev_forecast_dat[
-            "submission_month"
-        ] = rev_forecast_dat.automated_kpi_confidence_intervals_submission_month
+        rev_forecast_dat["submission_month"] = (
+            rev_forecast_dat.automated_kpi_confidence_intervals_submission_month
+        )
 
         self.rev_forecast_dat = rev_forecast_dat
 

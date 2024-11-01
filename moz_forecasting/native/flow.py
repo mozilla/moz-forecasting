@@ -314,10 +314,10 @@ class NativeForecastFlow(FlowSpec):
         query = f"""SELECT
                         (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
                         country_code as country,
-                            COALESCE(SUM(IF(pocket_enabled AND pocket_sponsored_stories_enabled,
+                            COALESCE(SUM(
+                            IF(pocket_enabled AND pocket_sponsored_stories_enabled,
                             newtab_visit_count,
                             0)), 0) AS newtab_impressions_with_spocs,
-                        SUM(sponsored_pocket_impressions) as sponsored_pocket_impressions
                         FROM `{self.newtab_clients_table}`
                         WHERE
                         submission_date >= '{observed_start_date}'
@@ -380,6 +380,8 @@ class NativeForecastFlow(FlowSpec):
         forecast["spoc_inventory_forecast"] = (
             forecast["newtab_impressions_with_spocs_enabled"] * 6
         )
+        self.forecast = forecast
+        self.next(self.end)
 
     @step
     def end(self):
