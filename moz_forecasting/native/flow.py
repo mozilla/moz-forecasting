@@ -13,6 +13,9 @@ from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
 from metaflow import FlowSpec, IncludeFile, Parameter, project, step
 
+from darts.models import StatsForecastAutoARIMA
+from darts.timeseries import TimeSeries
+
 GCP_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
 
 
@@ -35,8 +38,14 @@ class NativeForecastFlow(FlowSpec):
 
     write = Parameter(name="write", help="whether or not to write to BQ", default=False)
 
-    set_forecast_month = Parameter(
-        name="forecast_month",
+    set_forecast_start_month = Parameter(
+        name="forecast_start_month",
+        help="indicate historical month to set forecast date to in %Y-%m format",
+        default=None,
+    )
+
+    set_forecast_end_month = Parameter(
+        name="forecast_end_month",
         help="indicate historical month to set forecast date to in %Y-%m format",
         default=None,
     )
@@ -51,12 +60,22 @@ class NativeForecastFlow(FlowSpec):
         # load config
         self.config_data = yaml.safe_load(self.config)
 
-        if not self.set_forecast_month:
+        if not self.set_forecast_start_month:
             self.first_day_of_current_month = datetime.today().replace(day=1)
         else:
             self.first_day_of_current_month = datetime.strptime(
-                self.set_forecast_month + "-01", "%Y-%m-%d"
+                self.set_forecast_start_month + "-01", "%Y-%m-%d"
             )
+
+        if not self.set_forecast_end_month:
+            self.forecast_date_end = self.first_day_of_current_month + relativedelta(
+                months=18
+            )
+        else:
+            self.forecast_date_end = datetime.strptime(
+                self.set_forecast_end_month + "-01", "%Y-%m-%d"
+            )
+
         last_day_of_previous_month = self.first_day_of_current_month - timedelta(days=1)
         first_day_of_previous_month = last_day_of_previous_month.replace(day=1)
         self.observed_start_date = first_day_of_previous_month - relativedelta(years=1)
@@ -115,86 +134,9 @@ class NativeForecastFlow(FlowSpec):
         the timeframe of the observed data
 
         """
-        forecast_date_end_dt = self.observed_end_date.replace(day=1) + relativedelta(
-            months=18
-        )
-        forecast_date_end = forecast_date_end_dt.strftime("%Y-%m-%d")
+        forecast_date_end = self.forecast_date_end.strftime("%Y-%m-%d")
 
-        observed_start_date = self.observed_start_date.strftime("%Y-%m-%d")
-        observed_end_date = self.observed_end_date.strftime("%Y-%m-%d")
-
-        # first get the global KPI forecast
-        # there can be multiple forecasts for a given date
-        # joining to most_recent_forecasts selects only the most recent
-        # groupby in last step is because for monthly the current
-        # month will have two records, one for prediction and one forecast
-        # ANY_VALUE selects the first non-null value, so it will
-        # merge this case
-        query = f"""
-            WITH most_recent_forecasts AS (
-                SELECT aggregation_period,
-                    metric_alias,
-                    metric_hub_app_name,
-                    metric_hub_slug,
-                    MAX(forecast_predicted_at) AS forecast_predicted_at
-                FROM `{self.kpi_forecast_table}`
-                WHERE forecast_predicted_at <= '{observed_end_date}'
-                GROUP BY aggregation_period,
-                    metric_alias,
-                    metric_hub_app_name,
-                    metric_hub_slug
-            ),
-            only_most_recent_kpi_forecasts as (
-            SELECT *
-                FROM `{self.kpi_forecast_table}` AS forecasts
-                JOIN most_recent_forecasts
-            USING(aggregation_period,
-                    metric_alias,
-                    metric_hub_app_name,
-                    metric_hub_slug,
-                    forecast_predicted_at)
-            ),
-            pivoted_table as (SELECT * FROM only_most_recent_kpi_forecasts
-                                    PIVOT (SUM(value)
-                                    FOR measure
-                                        IN ('observed','p10', 'p90', 'mean', 'p50')))
-        SELECT submission_date as submission_month,
-            forecast_predicted_at,
-            REPLACE(CAST(metric_alias AS STRING), "_dau", "") as platform,
-            ANY_VALUE(observed) as observed_dau,
-            ANY_VALUE(p10) as p10_forecast,
-            ANY_VALUE(p90) as p90_forecast,
-            ANY_VALUE(mean) as mean_forecast,
-            ANY_VALUE(p50) as median_forecast
-        FROM pivoted_table
-        WHERE (submission_date >= DATE('{observed_start_date}'))
-            AND (submission_date <= DATE('{forecast_date_end}'))
-            AND aggregation_period = 'month'
-        GROUP BY 1,2,3
-        """
-
-        client = bigquery.Client(project=GCP_PROJECT_NAME)
-        query_job = client.query(query)
-
-        global_dau_forecast = query_job.to_dataframe()
-
-        # get forecast_predicted_at
-        # joined on before writing so the exact kpi forecast
-        # used is known
-        forecast_predicted_at = global_dau_forecast[
-            ["platform", "forecast_predicted_at"]
-        ].drop_duplicates()
-        if len(forecast_predicted_at) != 2:
-            raise ValueError(
-                f"Unexpected forecast_predicted_at dates:\n{forecast_predicted_at}"
-            )
-        self.forecast_predicted_at = forecast_predicted_at.rename(
-            columns={"platform": "device"}
-        )
-        # remove from global_dau_forecat
-        global_dau_forecast = global_dau_forecast.drop(columns="forecast_predicted_at")
-
-        # get dau by country from events_users_aggregates
+        kpi_forecast_start_date = self.config_data["kpi_forecast_start_date"]
 
         # extract eligibility functions from config
         # and turn them into a string that can be used in query
@@ -221,6 +163,9 @@ class NativeForecastFlow(FlowSpec):
         ]
         eligibility_string = "\n".join(eligibility_functions)
         call_string = "\n".join(call_string)
+        countries_string = ",".join(
+            f"'{el}'" for el in self.available_countries["country"].values
+        )
         query = f"""
                 {eligibility_string}
 
@@ -234,92 +179,108 @@ class NativeForecastFlow(FlowSpec):
                         {call_string}
                         FROM `{self.active_users_aggregates_table}`
                         WHERE
-                        submission_date >= "{observed_start_date}"
+                        submission_date >= "{kpi_forecast_start_date}"
+                        AND submission_date <= "{forecast_date_end}"
                         AND app_name in ("Fenix", "Firefox iOS", "Firefox Desktop")
+                        and country in ({countries_string})
                         GROUP BY
                         1,2,3"""
 
         client = bigquery.Client(project=GCP_PROJECT_NAME)
         query_job = client.query(query)
 
-        self.dau_by_country = query_job.to_dataframe()
+        dau = query_job.to_dataframe()
 
-        global_dau_forecast["submission_month"] = pd.to_datetime(
-            global_dau_forecast["submission_month"]
-        )
-        self.dau_by_country["submission_month"] = pd.to_datetime(
-            self.dau_by_country["submission_month"]
-        )
+        dau["submission_month"] = pd.to_datetime(dau["submission_month"])
 
-        # join dau by country onto observed forecast data
-        global_dau_forecast_observed = global_dau_forecast.loc[
-            (global_dau_forecast.submission_month >= self.observed_start_date)
-            & (global_dau_forecast.submission_month <= self.observed_end_date),
-            ["submission_month", "observed_dau", "platform"],
-        ]
+        # dau excluding the data before observed_start_date
+        # used for training the ARIMA KPI forecast
+        self.dau_by_country = dau[dau.submission_month >= self.observed_start_date]
 
-        global_dau_forecast_observed = pd.merge(
-            global_dau_forecast_observed,
-            self.dau_by_country,
-            how="left",
-            on=["submission_month", "platform"],
+        # ARIMA kpi forecast
+        by_country_dict = {}
+        prediction_df_list = []
+        # for each country fit a separate model
+        for country in self.available_countries["country"].values:
+            subset = dau.loc[
+                (dau.country == country)
+                & (dau.platform == "desktop")
+                & (dau.submission_month <= self.observed_end_date),
+                ["submission_month", "total_active"],
+            ]
+
+            country_ts = TimeSeries.from_dataframe(
+                subset,
+                time_col="submission_month",
+                value_cols="total_active",
+            )
+            country_forecast = StatsForecastAutoARIMA(season_length=12, alias=country)
+            country_forecast.fit(country_ts)
+
+            # prediction function uses number of periods
+            # rather than a date range
+            # get number of montsh between self.observed_end_date
+            # and self.forecast_date_end
+            num_periods_from_end = len(
+                pd.date_range(
+                    start=self.observed_end_date,
+                    end=self.forecast_date_end,
+                    inclusive="right",
+                    freq="MS",
+                )
+            )
+            pred = country_forecast.predict(num_periods_from_end)
+
+            # save info in a dict that can be saved
+            # as an attribute
+            by_country_dict[country] = {
+                "timeseries": country_ts,
+                "fit_model": country_forecast,
+                "predictions": pred,
+                "num_intervals_to_predict": num_periods_from_end,
+            }
+            country_pred_df = pred.pd_dataframe().reset_index()
+            country_pred_df["country"] = country
+            prediction_df_list.append(
+                country_pred_df[["submission_month", "country", "total_active"]]
+            )
+
+        #
+        dau_forecast = pd.concat(prediction_df_list).rename(
+            columns={"total_active": "dau_forecast"}
         )
+        dau_forecast["platform"] = "desktop"
+        self.forecast_predicted_at = datetime.now()
+
+        self.dau_forecast = dau_forecast
+        self.forecast_by_country_dict = by_country_dict
 
         # for each product, add a column with a count of eligible
         # daily users for that product
+        dau_observed = self.dau_by_country[
+            self.dau_by_country.submission_month <= self.observed_end_date
+        ]
         new_columns = []
         for forecast in self.config_data["eligibility"]:
             output_column_name = f"eligibility_fraction_{forecast}"
             # create the column and fill in values for mobile and desktop separately
-            global_dau_forecast_observed[output_column_name] = np.nan
+            dau_observed[output_column_name] = np.nan
             new_columns.append(output_column_name)
             for platform in ["desktop", "mobile"]:
                 input_column_name = f"eligible_{platform}_{forecast}_clients"
 
-                partition_filter = global_dau_forecast_observed["platform"] == platform
-                global_dau_forecast_observed.loc[
-                    partition_filter, output_column_name
-                ] = (
-                    global_dau_forecast_observed.loc[
-                        partition_filter, input_column_name
-                    ]
-                    / global_dau_forecast_observed.loc[
-                        partition_filter, "total_clients"
-                    ]
+                partition_filter = dau_observed["platform"] == platform
+                dau_observed.loc[partition_filter, output_column_name] = (
+                    dau_observed.loc[partition_filter, input_column_name]
+                    / dau_observed.loc[partition_filter, "total_clients"]
                 )
 
-        # add dau by country factor
-        # calculate by taking total dau by month from active_users_aggregates
-        # and dividing country-level dau with it
-        # assumpting here that effect of single user in multiple countries
-        # is negligible
-        dau_by_country_rollup = (
-            self.dau_by_country[["total_active", "submission_month", "platform"]]
-            .groupby(["submission_month", "platform"])
-            .sum()
-            .reset_index()
-        )
-        dau_by_country_rollup = dau_by_country_rollup.rename(
-            columns={"total_active": "total_dau"}
-        )
-
-        global_dau_forecast_observed = global_dau_forecast_observed.merge(
-            dau_by_country_rollup, on=["submission_month", "platform"], how="left"
-        )
-
-        global_dau_forecast_observed["share_by_market"] = (
-            global_dau_forecast_observed["total_active"]
-            / global_dau_forecast_observed["total_dau"]
-        )
-
-        self.global_dau_forecast_observed = global_dau_forecast_observed
+        self.global_dau_forecast_observed = dau_observed
 
         # average over the observation period to get
         # country-level factors
         self.dau_factors = (
-            global_dau_forecast_observed[
-                ["country", "platform", "share_by_market"] + new_columns
-            ]
+            dau_observed[["country", "platform"] + new_columns]
             .groupby(["country", "platform"])
             .mean()
             .reset_index()
@@ -327,7 +288,7 @@ class NativeForecastFlow(FlowSpec):
 
         # get forecasted values
         dau_forecast_by_country = pd.merge(
-            global_dau_forecast, self.dau_factors, how="inner", on=["platform"]
+            dau_forecast, self.dau_factors, how="inner", on=["platform", "country"]
         )
 
         # calculate by-country forecast
@@ -337,27 +298,7 @@ class NativeForecastFlow(FlowSpec):
             )
             dau_forecast_by_country[forecast_column_name] = (
                 dau_forecast_by_country[column]  # eligibility factor
-                * dau_forecast_by_country["share_by_market"]
-                * dau_forecast_by_country["median_forecast"]
-            )
-
-            # add 90th and 10th percentiles
-            dau_forecast_by_country[forecast_column_name + "_p90"] = (
-                dau_forecast_by_country[column]  # eligibility factor
-                * dau_forecast_by_country["share_by_market"]
-                * dau_forecast_by_country["p90_forecast"]
-            )
-
-            dau_forecast_by_country[forecast_column_name + "_p10"] = (
-                dau_forecast_by_country[column]  # eligibility factor
-                * dau_forecast_by_country["share_by_market"]
-                * dau_forecast_by_country["p10_forecast"]
-            )
-
-            dau_forecast_by_country[forecast_column_name + "_observed"] = (
-                dau_forecast_by_country[column]  # eligibility factor
-                * dau_forecast_by_country["share_by_market"]
-                * dau_forecast_by_country["observed_dau"]
+                * dau_forecast_by_country["dau_forecast"]
             )
         self.dau_forecast_by_country = dau_forecast_by_country
         self.next(self.get_newtab_impressions)
@@ -473,8 +414,7 @@ class NativeForecastFlow(FlowSpec):
 
         write_df["device"] = "desktop"
         write_df["forecast_month"] = self.first_day_of_current_month
-        write_df = write_df.merge(self.forecast_predicted_at, how="inner", on="device")
-
+        write_df["forecast_predicted_at"] = self.forecast_predicted_at
         assert set(write_df.columns) == {
             "forecast_month",
             "forecast_predicted_at",

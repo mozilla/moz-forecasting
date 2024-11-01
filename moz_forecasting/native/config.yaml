@@ -1,3 +1,6 @@
+# start date to pull data for KPI forecast
+kpi_forecast_start_date: "2019-01-01"
+
 # elgilibity rules for different product/platform combos
 eligibility:
   native:
