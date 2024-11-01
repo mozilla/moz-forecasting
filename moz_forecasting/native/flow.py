@@ -9,12 +9,11 @@ from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
 import yaml
+from darts.models import StatsForecastAutoARIMA
+from darts.timeseries import TimeSeries
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
 from metaflow import FlowSpec, IncludeFile, Parameter, project, step
-
-from darts.models import StatsForecastAutoARIMA
-from darts.timeseries import TimeSeries
 
 GCP_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
 
@@ -348,11 +347,6 @@ class NativeForecastFlow(FlowSpec):
             / impressions_with_dau["total_active"]
         )
 
-        impressions_with_dau["ratio_spoc_impressions_to_dou"] = (
-            impressions_with_dau["sponsored_pocket_impressions"]
-            / impressions_with_dau["total_active"]
-        )
-
         self.impressions_with_dau = impressions_with_dau
 
         self.impressions_to_spoc = (
@@ -360,7 +354,6 @@ class NativeForecastFlow(FlowSpec):
                 [
                     "country",
                     "ratio_newtab_impressions_with_spocpocket_to_dou",
-                    "ratio_spoc_impressions_to_dou",
                 ]
             ]
             .groupby("country", as_index=False)
@@ -388,17 +381,6 @@ class NativeForecastFlow(FlowSpec):
             forecast["newtab_impressions_with_spocs_enabled"] * 6
         )
 
-        forecast["spoc_impression_forecast"] = (
-            (
-                forecast["ratio_spoc_impressions_to_dou"]
-                * forecast["dau_forecast_native"]
-            )
-            .round()
-            .astype("Int64")
-        )
-        self.forecast = forecast
-        self.next(self.end)
-
     @step
     def end(self):
         """Write to BQ."""
@@ -408,7 +390,6 @@ class NativeForecastFlow(FlowSpec):
                 "submission_month",
                 "newtab_impressions_with_spocs_enabled",
                 "spoc_inventory_forecast",
-                "spoc_impression_forecast",
             ]
         ]
 
@@ -422,7 +403,6 @@ class NativeForecastFlow(FlowSpec):
             "submission_month",
             "newtab_impressions_with_spocs_enabled",
             "spoc_inventory_forecast",
-            "spoc_impression_forecast",
             "device",
         }
         if self.write:
