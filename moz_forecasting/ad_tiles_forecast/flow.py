@@ -74,11 +74,9 @@ def get_direct_allocation_df(
     # the same month/country combination can be present in multiple
     # direct allocation segments
     # aggregate to get the sum
-    direct_allocation_df = (
-        direct_allocation_df.groupby(["submission_month", "country"])
-        .sum()
-        .reset_index()
-    )
+    direct_allocation_df = direct_allocation_df.groupby(
+        ["submission_month", "country"], as_index=False
+    ).sum()
 
     # ensure that no month/country combination is more than 100% allocated
     all_allocated = direct_allocation_df[
@@ -89,22 +87,6 @@ def get_direct_allocation_df(
             f"More than 100% of inventory allocated for direct sales\n{all_allocated}"
         )
     return direct_allocation_df
-
-
-def vectorized_date_to_month(series: pd.Series) -> pd.Series:
-    """Turn datetime into the first day of the corresponding month.
-
-    Parameters
-    ----------
-    series : pd.Series
-       series of datetimes
-
-    Returns
-    -------
-    pd.Series
-        datetimes set to the first day of the month
-    """
-    return pd.to_datetime({"year": series.dt.year, "month": series.dt.month, "day": 1})
 
 
 @project(name="ad_tiles_forecast")
@@ -376,9 +358,8 @@ class AdTilesForecastFlow(FlowSpec):
         # is negligible
         dau_by_country_rollup = (
             self.dau_by_country[["total_active", "submission_month", "platform"]]
-            .groupby(["submission_month", "platform"])
+            .groupby(["submission_month", "platform"], as_index=False)
             .sum()
-            .reset_index()
         )
         dau_by_country_rollup = dau_by_country_rollup.rename(
             columns={"total_active": "total_dau"}
@@ -401,9 +382,8 @@ class AdTilesForecastFlow(FlowSpec):
             global_dau_forecast_observed[
                 ["country", "platform", "share_by_market"] + new_columns
             ]
-            .groupby(["country", "platform"])
+            .groupby(["country", "platform"], as_index=False)
             .mean()
-            .reset_index()
         )
 
         # get forecasted values
@@ -581,10 +561,8 @@ class AdTilesForecastFlow(FlowSpec):
             observed_data["total_inventory_1and2"] / observed_data["total_active"]
         )
 
-        inventory_per_client = (
-            observed_data.groupby("country").mean()[["inv_per_client"]].reset_index()
-        )
-        self.inventory_per_client = inventory_per_client
+        inventory_per_client = observed_data.groupby("country", as_index=False).mean()
+        self.inventory_per_client = inventory_per_client[["inv_per_client", "country"]]
         self.next(self.calculate_forecasted_inventory_by_country)
 
     @step
@@ -627,9 +605,9 @@ class AdTilesForecastFlow(FlowSpec):
             ["country", "fill_rate"],
         ]
 
-        average_fill_rate_by_country = (
-            observed_fill_rate_by_country.groupby("country").mean().reset_index()
-        )
+        average_fill_rate_by_country = observed_fill_rate_by_country.groupby(
+            "country", as_index=False
+        ).mean()
 
         self.revenue_forecast = pd.merge(
             self.inventory_forecast, average_fill_rate_by_country, on="country"
