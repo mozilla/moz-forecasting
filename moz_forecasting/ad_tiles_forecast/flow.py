@@ -465,9 +465,8 @@ class AdTilesForecastFlow(FlowSpec):
         query_end_date = self.first_day_of_current_month.strftime("%Y-%m-%d")
         tile_impression_data_query = f""" SELECT
                                 country,
-                                submission_date,
+                                DATE_TRUNC(submission_date, MONTH) AS submission_month,
                                 form_factor,
-                                release_channel,
                                 SUM(IF(position <= 2, event_count, 0))
                                     AS sponsored_impressions_1and2,
                                 SUM(event_count) AS sponsored_impressions_all
@@ -480,11 +479,35 @@ class AdTilesForecastFlow(FlowSpec):
                                 AND submission_date < '{query_end_date}'
                             GROUP BY
                                 country,
-                                submission_date,
-                                form_factor,
-                                release_channel"""
+                                submission_month,
+                                form_factor"""
         client = bigquery.Client(project=GCP_PROJECT_NAME)
-        self.inventory_raw = client.query(tile_impression_data_query).to_dataframe()
+        inventory_raw = client.query(tile_impression_data_query).to_dataframe()
+        self.inventory_raw = self.inventory_raw
+
+        # impution data for new markets
+        imputation_data = self.config_data["new_markets"]
+        inventory_raw_no_imputation = inventory_raw[
+            ~inventory_raw.country.isin(imputation_data)
+        ]
+        imputed_data_list = [inventory_raw_no_imputation]
+        for country, imputation_info in imputation_data.items():
+            imputation_columns = [
+                "submission_month",
+                "form_factor",
+                "sponsored_impressions_1and2",
+                "sponsored_impressions_all",
+            ]
+            impute_with = inventory_raw.loc[
+                inventory_raw.country.isin(imputation_info["countries_to_use"]),
+                imputation_columns,
+            ]
+            impute_grouped = impute_with.groupby(
+                ["submission_month", "form_factor"], as_index=False
+            ).mean()
+            impute_grouped["country"] = country
+            imputed_data_list.append(impute_grouped)
+        self.inventory_with_imputation = pd.concat(imputed_data_list)
         self.next(self.get_newtab_visits)
 
     @step
@@ -530,25 +553,9 @@ class AdTilesForecastFlow(FlowSpec):
             (self.inventory_raw["form_factor"] == "desktop")
             & (self.inventory_raw["country"].isin(countries))
         ]
-        inventory_raw["submission_month"] = vectorized_date_to_month(
-            pd.to_datetime(inventory_raw["submission_date"])
-        )
-        inventory_agg = (
-            inventory_raw[
-                [
-                    "submission_month",
-                    "country",
-                    "sponsored_impressions_1and2",
-                    "sponsored_impressions_all",
-                ]
-            ]
-            .groupby(["submission_month", "country"])
-            .sum()
-            .reset_index()
-        )
 
         # join on newtab vists and calculate fill rates
-        inventory = inventory_agg.merge(
+        inventory = inventory_raw.merge(
             self.newtab_vists, on=["submission_month", "country"], how="inner"
         )
         inventory["fill_rate"] = (
