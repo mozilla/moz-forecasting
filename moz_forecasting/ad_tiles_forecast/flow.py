@@ -465,9 +465,9 @@ class AdTilesForecastFlow(FlowSpec):
         query_end_date = self.first_day_of_current_month.strftime("%Y-%m-%d")
         tile_impression_data_query = f""" SELECT
                                 country,
-                                submission_date,
+                                (FORMAT_DATE('%Y-%m', submission_date ))
+                                    AS submission_month,
                                 form_factor,
-                                release_channel,
                                 SUM(IF(position <= 2, event_count, 0))
                                     AS sponsored_impressions_1and2,
                                 SUM(event_count) AS sponsored_impressions_all
@@ -480,11 +480,10 @@ class AdTilesForecastFlow(FlowSpec):
                                 AND submission_date < '{query_end_date}'
                             GROUP BY
                                 country,
-                                submission_date,
-                                form_factor,
-                                release_channel"""
+                                submission_month,
+                                form_factor"""
         client = bigquery.Client(project=GCP_PROJECT_NAME)
-        self.inventory_raw = client.query(tile_impression_data_query).to_dataframe()
+        self.inventory_agg = client.query(tile_impression_data_query).to_dataframe()
         self.next(self.get_newtab_visits)
 
     @step
@@ -526,25 +525,12 @@ class AdTilesForecastFlow(FlowSpec):
         Creates fill_rate and sponsored_impressions columns
         """
         countries = self.config_data["RPM"].keys()
-        inventory_raw = self.inventory_raw[
-            (self.inventory_raw["form_factor"] == "desktop")
-            & (self.inventory_raw["country"].isin(countries))
+        inventory_agg = self.inventory_agg[
+            (self.inventory_agg["form_factor"] == "desktop")
+            & (self.inventory_agg["country"].isin(countries))
         ]
-        inventory_raw["submission_month"] = vectorized_date_to_month(
-            pd.to_datetime(inventory_raw["submission_date"])
-        )
-        inventory_agg = (
-            inventory_raw[
-                [
-                    "submission_month",
-                    "country",
-                    "sponsored_impressions_1and2",
-                    "sponsored_impressions_all",
-                ]
-            ]
-            .groupby(["submission_month", "country"])
-            .sum()
-            .reset_index()
+        inventory_agg["submission_month"] = pd.to_datetime(
+            inventory_agg["submission_month"]
         )
 
         # join on newtab vists and calculate fill rates
