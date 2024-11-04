@@ -288,9 +288,8 @@ class MobileAdTilesForecastFlow(FlowSpec):
         # is negligible
         dau_by_country_rollup = (
             self.dau_by_country[["total_active", "submission_month", "platform"]]
-            .groupby(["submission_month", "platform"])
+            .groupby(["submission_month", "platform"], as_index=False)
             .sum()
-            .reset_index()
         )
         dau_by_country_rollup = dau_by_country_rollup.rename(
             columns={"total_active": "total_dau"}
@@ -313,9 +312,8 @@ class MobileAdTilesForecastFlow(FlowSpec):
             global_dau_forecast_observed[
                 ["country", "platform", "share_by_market"] + new_columns
             ]
-            .groupby(["country", "platform"])
+            .groupby(["country", "platform"], as_index=False)
             .mean()
-            .reset_index()
         )
 
         # get forecasted values
