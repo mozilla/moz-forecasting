@@ -28,3 +28,13 @@ output:
     project: mozdata
     database: revenue_cat3_analysis
     table: native_forecast
+
+# countries to run the forecast on
+countries:
+  - DE
+  - GB
+  - CA
+  - FR
+  - ES
+  - IT
+  - US

@@ -93,19 +93,12 @@ class NativeForecastFlow(FlowSpec):
 
         self.newtab_clients_table = "mozdata.telemetry.newtab_clients_daily"
 
-        self.country_table = "mozdata.static.country_codes_v1"
-
         self.next(self.get_country_availability)
 
     @step
     def get_country_availability(self):
         """Get country availability from table."""
-        query = f"""SELECT code as country
-                        FROM `{self.country_table}` where pocket_available_on_newtab"""
-        client = bigquery.Client(project=GCP_PROJECT_NAME)
-        query_job = client.query(query)
-
-        self.available_countries = query_job.to_dataframe()
+        self.available_countries = self.config_data["countries"]
         self.next(self.get_dau_forecast_by_country)
 
     @step
@@ -162,9 +155,7 @@ class NativeForecastFlow(FlowSpec):
         ]
         eligibility_string = "\n".join(eligibility_functions)
         call_string = "\n".join(call_string)
-        countries_string = ",".join(
-            f"'{el}'" for el in self.available_countries["country"].values
-        )
+        countries_string = ",".join(f"'{el}'" for el in self.available_countries)
         query = f"""
                 {eligibility_string}
 
@@ -200,7 +191,7 @@ class NativeForecastFlow(FlowSpec):
         by_country_dict = {}
         prediction_df_list = []
         # for each country fit a separate model
-        for country in self.available_countries["country"].values:
+        for country in self.available_countries:
             subset = dau.loc[
                 (dau.country == country)
                 & (dau.platform == "desktop")
@@ -307,9 +298,7 @@ class NativeForecastFlow(FlowSpec):
         """Get ratio of newtab impression to dau."""
         observed_end_date = self.observed_end_date.strftime("%Y-%m-%d")
         observed_start_date = self.observed_start_date.strftime("%Y-%m-%d")
-        countries_string = ",".join(
-            f"'{el}'" for el in self.available_countries["country"].values
-        )
+        countries_string = ",".join(f"'{el}'" for el in self.available_countries)
 
         query = f"""SELECT
                         (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
