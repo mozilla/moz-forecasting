@@ -6,6 +6,7 @@
 import os
 from datetime import datetime, timedelta
 
+import numpy as np
 import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
@@ -63,7 +64,11 @@ class MobileAdTilesForecastFlow(FlowSpec):
         last_day_of_previous_month = self.first_day_of_current_month - timedelta(days=1)
         first_day_of_previous_month = last_day_of_previous_month.replace(day=1)
         self.first_day_of_previous_month = first_day_of_previous_month
-        self.observed_start_date = first_day_of_previous_month - relativedelta(years=1)
+
+        observed_months = self.config_data["observed_months"]
+        self.observed_start_date = first_day_of_previous_month - relativedelta(
+            months=observed_months
+        )
         self.observed_end_date = last_day_of_previous_month
 
         # tables to get data from
@@ -78,23 +83,50 @@ class MobileAdTilesForecastFlow(FlowSpec):
         )
         self.cpc_table = "mozdata.revenue.revenue_data_admarketplace_cpc"
 
-        self.next(self.get_kpi_forecast)
+        self.next(self.get_dau_forecast_by_country)
 
     @step
-    def get_kpi_forecast(self):
-        """Get Mobile KPI Data.
+    def get_dau_forecast_by_country(self):
+        """Get by-country dau forecast.
 
-        Creates the following columns, all of which are aggregate
-        metrics of the mobile dau forecast:
-        automated_kpi_confidence_intervals_estimated_value: mean value
-        automated_kpi_confidence_intervals_estimated_10th_percentile: 10th percentile
-        automated_kpi_confidence_intervals_estimated_90th_percentile: 90th percentile
+        The ultimate outcome is creating columns of the form
+        dau_forecast_<product> where product is specified as a key under
+        the `elgibility` field in the config.  For each product, elgibility
+        rules can be specified for desktop and mobile.
+
+        The dau forecast is created by multiplying the global dau
+        forecast by two factors:  a country-level  dau fraction and a
+        country-level elgbility fraction.  The former is the fraction of dau
+        for a given country over total dau from the events_users_aggregates table.
+        The latter is the fraction of eligible dau over total dau within a country,
+        and captures country-level rules and variation in elgilibilty for the product
+        (IE tiles was released on different dates in different countries).
+        These rules are captured in the elgilbility function in the config.
+
+        The active users aggregates query is saved as dau_by_country
+        so it can be used in other steps.
+
+        Both factors are calculated and the quotients are averaged over
+        the timeframe of the observed data
+
         """
-        forecast_date_start = self.first_day_of_current_month.strftime("%Y-%m-%d")
+        forecast_date_end_dt = self.observed_end_date.replace(day=1) + relativedelta(
+            months=18
+        )
+        forecast_date_end = forecast_date_end_dt.strftime("%Y-%m-%d")
+
+        observed_start_date = self.observed_start_date.strftime("%Y-%m-%d")
         observed_end_date = self.observed_end_date.strftime("%Y-%m-%d")
+
+        # first get the global KPI forecast
+        # there can be multiple forecasts for a given date
+        # joining to most_recent_forecasts selects only the most recent
+        # groupby in last step is because for monthly the current
+        # month will have two records, one for prediction and one forecast
+        # ANY_VALUE selects the first non-null value, so it will
+        # merge this case
         query = f"""
-        WITH
-            most_recent_forecasts AS (
+            WITH most_recent_forecasts AS (
                 SELECT aggregation_period,
                     metric_alias,
                     metric_hub_app_name,
@@ -117,159 +149,223 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     metric_hub_slug,
                     forecast_predicted_at)
             ),
-            renamed_indices as (SELECT forecast_end_date as asofdate,
-                                        submission_date,
-                                        metric_alias as target,
-                                        aggregation_period as unit,
-                                        DATE(forecast_predicted_at) as forecast_date,
-                                        forecast_parameters, measure, value
-                                FROM only_most_recent_kpi_forecasts),
-            pivoted_table as (SELECT * FROM renamed_indices
+            pivoted_table as (SELECT * FROM only_most_recent_kpi_forecasts
                                     PIVOT (SUM(value)
-                                    FOR measure in ('observed','p10', 'p90', 'mean')))
-        SELECT
-            CAST(submission_date as STRING)
-                AS automated_kpi_confidence_intervals_submission_month,
-            (SELECT MAX(a) FROM UNNEST([mean, observed]) a WHERE a is not NULL)
-                AS automated_kpi_confidence_intervals_estimated_value,
-            p10 AS automated_kpi_confidence_intervals_estimated_10th_percentile,
-            p90 AS automated_kpi_confidence_intervals_estimated_90th_percentile
+                                    FOR measure
+                                        IN ('observed','p10', 'p90', 'mean', 'p50')))
+        SELECT submission_date as submission_month,
+            forecast_predicted_at,
+            REPLACE(CAST(metric_alias AS STRING), "_dau", "") as platform,
+            ANY_VALUE(observed) as observed_dau,
+            ANY_VALUE(p10) as p10_forecast,
+            ANY_VALUE(p90) as p90_forecast,
+            ANY_VALUE(mean) as mean_forecast,
+            ANY_VALUE(p50) as median_forecast
         FROM pivoted_table
-        WHERE
-            CAST(unit AS STRING) = 'month'
-            AND REPLACE(CAST(target AS STRING), "_dau", "") = 'mobile'
-            AND CAST(submission_date as STRING) >= '{forecast_date_start}'
+        WHERE (submission_date >= DATE('{observed_start_date}'))
+            AND (submission_date <= DATE('{forecast_date_end}'))
+            AND aggregation_period = 'month'
+        GROUP BY 1,2,3
         """
 
         client = bigquery.Client(project=GCP_PROJECT_NAME)
         query_job = client.query(query)
 
-        mobile_kpi = query_job.to_dataframe()
-        final_forecast_month = mobile_kpi[
-            "automated_kpi_confidence_intervals_submission_month"
-        ].max()
-        mobile_kpi = mobile_kpi[
-            mobile_kpi["automated_kpi_confidence_intervals_submission_month"]
-            < final_forecast_month
+        global_dau_forecast = query_job.to_dataframe()
+
+        # get forecast_predicted_at
+        # joined on before writing so the exact kpi forecast
+        # used is known
+        forecast_predicted_at = global_dau_forecast[
+            ["platform", "forecast_predicted_at"]
+        ].drop_duplicates()
+        if len(forecast_predicted_at) != 2:
+            raise ValueError(
+                f"Unexpected forecast_predicted_at dates:\n{forecast_predicted_at}"
+            )
+        self.forecast_predicted_at = forecast_predicted_at.rename(
+            columns={"platform": "device"}
+        )
+
+        # get dau by country from events_users_aggregates
+
+        # extract elgibility functions from config
+        # and turn them into a string that can be used in query
+        # mobile and desktop each get their own columns
+        # when counting eligible daily users for each product
+        eligibility_functions = []
+        eligibility_function_calls = []
+        # iterate over products in the config
+        for forecast, elgibility_data in self.config_data["elgibility"].items():
+            # currently only support partitioning by platform
+            for platform in ["mobile", "desktop"]:
+                partition_data = elgibility_data[platform]
+                eligibility_functions.append(partition_data["bq_function"])
+
+                eligibility_function_calls.append(
+                    (
+                        partition_data["function_call"],
+                        f"eligible_{platform}_{forecast}_clients",
+                    )
+                )
+        call_string = [
+            f"SUM(IF({x[0]}, daily_users, 0)) as {x[1]},"
+            for x in eligibility_function_calls
+        ]
+        elgibility_string = "\n".join(eligibility_functions)
+        call_string = "\n".join(call_string)
+        query = f"""
+                {elgibility_string}
+
+                SELECT
+                        (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
+                        country,
+                        IF(app_name = 'Firefox Desktop', 'desktop', 'mobile')
+                            as platform,
+                        COALESCE(SUM((dau)), 0) AS total_active,
+                        COALESCE(SUM((daily_users) ), 0) AS total_clients,
+                        {call_string}
+                        FROM `{self.active_users_aggregates_table}`
+                        WHERE
+                        submission_date >= "{observed_start_date}"
+                        AND app_name in ("Fenix", "Firefox iOS", "Firefox Desktop")
+                        GROUP BY
+                        1,2,3"""
+
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
+        query_job = client.query(query)
+
+        self.dau_by_country = query_job.to_dataframe()
+
+        global_dau_forecast["submission_month"] = pd.to_datetime(
+            global_dau_forecast["submission_month"]
+        )
+        self.dau_by_country["submission_month"] = pd.to_datetime(
+            self.dau_by_country["submission_month"]
+        )
+
+        # join dau by country onto observed forecast data
+        global_dau_forecast_observed = global_dau_forecast.loc[
+            (global_dau_forecast.submission_month >= self.observed_start_date)
+            & (global_dau_forecast.submission_month <= self.observed_end_date),
+            ["submission_month", "observed_dau", "platform"],
         ]
 
-        self.mobile_kpi = mobile_kpi
-
-        self.next(self.get_dau_by_country)
-
-    @step
-    def get_dau_by_country(self):
-        """Get dau by country.
-
-        This step creates two columns:
-            - eligible_share_country: the quotient of eligible clients within a
-                given country to the total number of clients across all countries
-                for each day
-            - eligible_clients: the number of eligible clients
-                within a country on given day
-                that are using Fenix or Firefox iOS on the release channel
-        """
-        first_day_previous_month = self.first_day_of_previous_month.strftime("%Y-%m-%d")
-        first_day_current_month = self.first_day_of_current_month.strftime("%Y-%m-%d")
-        query = f"""CREATE TEMP FUNCTION IsEligible(os STRING,
-                                                    version NUMERIC,
-                                                    country STRING,
-                                                    submission_date DATE)
-                    RETURNS BOOL
-                    AS ((os = "Android"
-                            AND  version > 100
-                            AND (
-                                (country = "US" AND submission_date >= "2022-09-20")
-                                OR (country = "DE" AND submission_date >= "2022-12-05")
-                                OR (country IN ("BR", "CA", "ES",
-                                                    "FR", "GB", "IN", "AU")
-                                        AND submission_date >= "2023-05-15")))
-                        OR (os = "iOS"
-                            AND version > 101
-                            AND (
-                                (country = "US"
-                                    AND submission_date >= "2022-10-04")
-                                OR (country = "DE"
-                                    AND submission_date >= "2022-12-05")
-                                OR (country IN ("BR", "CA", "ES",
-                                                    "FR", "GB", "IN", "AU")
-                                    AND submission_date >= "2023-05-15")
-                            ))) ;
-                SELECT
-                        submission_date,
-                        country,
-                        app_name,
-                        channel,
-                        COALESCE(SUM((dau) ), 0) AS total_active,
-                        COALESCE(SUM((daily_users) ), 0) AS total_clients,
-                        SUM(IF(IsEligible(os_grouped,
-                                            app_version_major,
-                                            country,
-                                            submission_date),
-                                        daily_users,
-                                        0)) as eligible_clients,
-                        FROM `{self.active_users_aggregates_table}`
-                            AS active_users_aggregates
-                        WHERE
-                        os_grouped in ("iOS", "Android")
-                            AND submission_date >= "{first_day_previous_month}"
-                            AND submission_date < "{first_day_current_month}"
-                        GROUP BY
-                        submission_date, country, app_name, channel"""
-        client = bigquery.Client(project=GCP_PROJECT_NAME)
-        query_job = client.query(query)
-        dau_raw = query_job.to_dataframe()
-
-        # make sure countries with eligible clients
-        # is a subset of countries in the config
-        eligible_by_country = (
-            dau_raw[["country", "eligible_clients"]].groupby("country").sum()
+        global_dau_forecast_observed = pd.merge(
+            global_dau_forecast_observed,
+            self.dau_by_country,
+            how="left",
+            on=["submission_month", "platform"],
         )
-        countries_with_eligible = eligible_by_country[
-            eligible_by_country["eligible_clients"] > 0
-        ].index
-        if not set(countries_with_eligible) <= set(self.countries):
-            extra_countries = ",".join(
-                list(set(self.countries) - set(countries_with_eligible))
-            )
-            raise ValueError(
-                f"Eligible countries with no eligible clients: {extra_countries}"
-            )
 
-        clients_by_day = (
-            dau_raw[["submission_date", "total_clients"]]
-            .groupby("submission_date")
+        # for each product, add a column with a count of eligible
+        # daily users for that product
+        new_columns = []
+        for forecast in self.config_data["elgibility"]:
+            output_column_name = f"elgibility_fraction_{forecast}"
+            # create the column and fill in values for mobile and desktop separately
+            global_dau_forecast_observed[output_column_name] = np.nan
+            new_columns.append(output_column_name)
+            for platform in ["desktop", "mobile"]:
+                input_column_name = f"eligible_{platform}_{forecast}_clients"
+
+                partition_filter = global_dau_forecast_observed["platform"] == platform
+                global_dau_forecast_observed.loc[
+                    partition_filter, output_column_name
+                ] = (
+                    global_dau_forecast_observed.loc[
+                        partition_filter, input_column_name
+                    ]
+                    / global_dau_forecast_observed.loc[
+                        partition_filter, "total_clients"
+                    ]
+                )
+
+        # add dau by country factor
+        # calculate by taking total dau by month from active_users_aggregates
+        # and dividing country-level dau with it
+        # assumpting here that effect of single user in multiple countries
+        # is negligible
+        dau_by_country_rollup = (
+            self.dau_by_country[["total_active", "submission_month", "platform"]]
+            .groupby(["submission_month", "platform"], as_index=False)
             .sum()
-            .reset_index()
         )
-        clients_by_day_by_country = (
-            dau_raw[["submission_date", "country", "eligible_clients"]]
-            .groupby(["submission_date", "country"])
-            .sum()
-            .reset_index()
-        )
-        client_share = clients_by_day.merge(
-            clients_by_day_by_country, on="submission_date"
-        )
-        client_share["eligible_share_country"] = (
-            client_share["eligible_clients"] / client_share["total_clients"]
+        dau_by_country_rollup = dau_by_country_rollup.rename(
+            columns={"total_active": "total_dau"}
         )
 
-        population = (
-            dau_raw.loc[
-                dau_raw.app_name.isin(["Fenix", "Firefox iOS"])
-                & dau_raw.country.isin(self.countries)
-                & (dau_raw.channel == "release"),
-                ["submission_date", "country", "eligible_clients"],
+        global_dau_forecast_observed = global_dau_forecast_observed.merge(
+            dau_by_country_rollup, on=["submission_month", "platform"], how="left"
+        )
+
+        global_dau_forecast_observed["share_by_market"] = (
+            global_dau_forecast_observed["total_active"]
+            / global_dau_forecast_observed["total_dau"]
+        )
+
+        self.global_dau_forecast_observed = global_dau_forecast_observed
+
+        # average over the observation period to get
+        # country-level factors
+        self.dau_factors = (
+            global_dau_forecast_observed[
+                ["country", "platform", "share_by_market"] + new_columns
             ]
-            .groupby(["submission_date", "country"])
-            .sum()
-            .reset_index()
+            .groupby(["country", "platform"], as_index=False)
+            .mean()
         )
 
-        self.dau_by_country = client_share[
-            ["submission_date", "country", "eligible_share_country"]
-        ].merge(population, on=["submission_date", "country"])
+        # get forecasted values
+        global_dau_forecast_future = global_dau_forecast.loc[
+            global_dau_forecast.submission_month > self.observed_end_date,
+            [
+                "submission_month",
+                "median_forecast",
+                "mean_forecast",
+                "p10_forecast",
+                "p90_forecast",
+                "platform",
+            ],
+        ]
+        dau_forecast_by_country = pd.merge(
+            global_dau_forecast_future, self.dau_factors, how="inner", on=["platform"]
+        )[
+            [
+                "submission_month",
+                "country",
+                "median_forecast",
+                "mean_forecast",
+                "p10_forecast",
+                "p90_forecast",
+                "share_by_market",
+                "platform",
+            ]
+            + new_columns
+        ]
+
+        # calculate by-country forecast
+        for column in new_columns:
+            forecast_column_name = column.replace("elgibility_fraction", "dau_forecast")
+            dau_forecast_by_country[forecast_column_name] = (
+                dau_forecast_by_country[column]  # elgilibity factor
+                * dau_forecast_by_country["share_by_market"]
+                * dau_forecast_by_country["median_forecast"]
+            )
+
+            # add 90th and 10th percentiles
+            dau_forecast_by_country[forecast_column_name + "_p90"] = (
+                dau_forecast_by_country[column]  # elgilibity factor
+                * dau_forecast_by_country["share_by_market"]
+                * dau_forecast_by_country["p90_forecast"]
+            )
+
+            dau_forecast_by_country[forecast_column_name + "_p10"] = (
+                dau_forecast_by_country[column]  # elgilibity factor
+                * dau_forecast_by_country["share_by_market"]
+                * dau_forecast_by_country["p10_forecast"]
+            )
+        self.dau_forecast_by_country = dau_forecast_by_country
         self.next(self.get_tile_data)
 
     @step
@@ -289,7 +385,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
             f"'{el}'" for el in self.excluded_advertisers
         )
         query = f"""SELECT
-                        submission_date,
+                        (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
                         country,
                         event_type,
                         COALESCE(SUM(IF(advertiser = "amazon",
@@ -316,12 +412,11 @@ class MobileAdTilesForecastFlow(FlowSpec):
                     WHERE
                         submission_date >= "{forecast_start}"
                         AND form_factor = "phone"
-                        AND release_channel = "release"
                         AND event_type in ("impression", "click")
                         AND source = "topsites"
                         AND country IN ({countries_string})
                     GROUP BY
-                        submission_date,
+                        submission_month,
                         country,
                         event_type"""
         client = bigquery.Client(project=GCP_PROJECT_NAME)
@@ -330,7 +425,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         clicks = tile_data.loc[
             tile_data["event_type"] == "click",
             [
-                "submission_date",
+                "submission_month",
                 "country",
                 "amazon_interaction_count",
                 "other_interaction_count",
@@ -343,10 +438,14 @@ class MobileAdTilesForecastFlow(FlowSpec):
         )
         inventory = tile_data.loc[
             tile_data["event_type"] == "impression",
-            ["submission_date", "country", "p_amazon", "p_other"],
+            ["submission_month", "country", "p_amazon", "p_other"],
         ]
 
-        self.events_data = clicks.merge(inventory, on=["submission_date", "country"])
+        self.events_data = clicks.merge(inventory, on=["submission_month", "country"])
+
+        self.events_data["submission_month"] = pd.to_datetime(
+            self.events_data["submission_month"]
+        )
 
         self.next(self.aggregate_data)
 
@@ -358,15 +457,25 @@ class MobileAdTilesForecastFlow(FlowSpec):
         - amazon_clicks_per_qdau
         - other_clicks_per_qdau
         """
+        dau_by_country = self.dau_by_country[
+            self.dau_by_country.platform == "mobile"
+        ].drop(columns="platform")
         aggregate_data = self.events_data.merge(
-            self.dau_by_country, on=["submission_date", "country"]
+            dau_by_country, on=["submission_month", "country"]
         )
 
+        previous_month = self.first_day_of_previous_month.strftime(format="%Y-%m")
+
+        # filter to previous month
+        aggregate_data = aggregate_data[
+            aggregate_data.submission_month == previous_month
+        ].drop(columns="submission_month")
+
         aggregate_data["amazon_clients"] = (
-            aggregate_data["p_amazon"] * aggregate_data["eligible_clients"]
+            aggregate_data["p_amazon"] * aggregate_data["eligible_mobile_tiles_clients"]
         )
         aggregate_data["other_clients"] = (
-            aggregate_data["p_other"] * aggregate_data["eligible_clients"]
+            aggregate_data["p_other"] * aggregate_data["eligible_mobile_tiles_clients"]
         )
 
         aggregate_data["amazon_clicks_per_qdau"] = (
@@ -377,40 +486,16 @@ class MobileAdTilesForecastFlow(FlowSpec):
         )
 
         # in notebook this is mobile_forecasting_data
-        self.usage_by_date_and_country = aggregate_data
-
-        self.next(self.aggregate_usage)
-
-    @step
-    def aggregate_usage(self):
-        """Get usage by country by averaging over last month."""
-        # get just the last month of data
-        by_country_usage = (
-            self.usage_by_date_and_country[
-                (
-                    self.usage_by_date_and_country.submission_date
-                    >= self.first_day_of_previous_month
-                )
-                & (
-                    self.usage_by_date_and_country.submission_date
-                    < self.first_day_of_current_month
-                )
+        self.usage_by_country = aggregate_data[
+            [
+                "country",
+                "p_amazon",
+                "p_other",
+                "amazon_clicks_per_qdau",
+                "other_clicks_per_qdau",
             ]
-            .groupby("country")[
-                [
-                    "eligible_share_country",
-                    "p_amazon",
-                    "p_other",
-                    "amazon_clicks_per_qdau",
-                    "other_clicks_per_qdau",
-                ]
-            ]
-            .mean()
-            .reset_index()
-        )
+        ]
 
-        # in notebook this is last_comp_month
-        self.usage_by_country = by_country_usage
         self.next(self.get_cpcs)
 
     @step
@@ -464,33 +549,26 @@ class MobileAdTilesForecastFlow(FlowSpec):
         country_level_metrics = pd.merge(
             self.usage_by_country, self.mobile_cpc, how="left", on="country"
         )
-        rev_forecast_dat = pd.merge(country_level_metrics, self.mobile_kpi, how="cross")
 
-        rev_forecast_dat = rev_forecast_dat[
-            pd.to_datetime(
-                rev_forecast_dat.automated_kpi_confidence_intervals_submission_month
+        dau_forecast_by_country = self.dau_forecast_by_country[
+            (self.dau_forecast_by_country["platform"] == "mobile")
+            & (
+                self.dau_forecast_by_country.submission_month
+                >= pd.to_datetime(forecast_start_date)
             )
-            >= pd.to_datetime(forecast_start_date)
         ]
+        rev_forecast_dat = pd.merge(
+            country_level_metrics, dau_forecast_by_country, how="inner", on="country"
+        )
 
         rev_forecast_dat["est_value_amazon_qdau"] = (
-            rev_forecast_dat["automated_kpi_confidence_intervals_estimated_value"]
-            * rev_forecast_dat["eligible_share_country"]
-            * rev_forecast_dat["p_amazon"]
+            rev_forecast_dat["dau_forecast_tiles"] * rev_forecast_dat["p_amazon"]
         )
         rev_forecast_dat["10p_amazon_qdau"] = (
-            rev_forecast_dat[
-                "automated_kpi_confidence_intervals_estimated_10th_percentile"
-            ]
-            * rev_forecast_dat["eligible_share_country"]
-            * rev_forecast_dat["p_amazon"]
+            rev_forecast_dat["dau_forecast_tiles_p10"] * rev_forecast_dat["p_amazon"]
         )
         rev_forecast_dat["90p_amazon_qdau"] = (
-            rev_forecast_dat[
-                "automated_kpi_confidence_intervals_estimated_90th_percentile"
-            ]
-            * rev_forecast_dat["eligible_share_country"]
-            * rev_forecast_dat["p_amazon"]
+            rev_forecast_dat["dau_forecast_tiles_p90"] * rev_forecast_dat["p_amazon"]
         )
 
         rev_forecast_dat["amazon_clicks"] = (
@@ -503,23 +581,13 @@ class MobileAdTilesForecastFlow(FlowSpec):
         )
 
         rev_forecast_dat["est_value_other_qdau"] = (
-            rev_forecast_dat["automated_kpi_confidence_intervals_estimated_value"]
-            * rev_forecast_dat["eligible_share_country"]
-            * rev_forecast_dat["p_other"]
+            rev_forecast_dat["dau_forecast_tiles"] * rev_forecast_dat["p_other"]
         )
         rev_forecast_dat["10p_other_qdau"] = (
-            rev_forecast_dat[
-                "automated_kpi_confidence_intervals_estimated_10th_percentile"
-            ]
-            * rev_forecast_dat["eligible_share_country"]
-            * rev_forecast_dat["p_other"]
+            rev_forecast_dat["dau_forecast_tiles_p10"] * rev_forecast_dat["p_other"]
         )
         rev_forecast_dat["90p_other_qdau"] = (
-            rev_forecast_dat[
-                "automated_kpi_confidence_intervals_estimated_90th_percentile"
-            ]
-            * rev_forecast_dat["eligible_share_country"]
-            * rev_forecast_dat["p_other"]
+            rev_forecast_dat["dau_forecast_tiles_p90"] * rev_forecast_dat["p_other"]
         )
         rev_forecast_dat["other_clicks"] = (
             rev_forecast_dat["est_value_other_qdau"]
@@ -537,6 +605,16 @@ class MobileAdTilesForecastFlow(FlowSpec):
             rev_forecast_dat["other_revenue"] + rev_forecast_dat["amazon_revenue"]
         )
         rev_forecast_dat["device"] = "mobile"
+
+        prefix = "automated_kpi_confidence_intervals_estimated"
+        rev_forecast_dat = rev_forecast_dat.rename(
+            columns={
+                "p90_forecast": f"{prefix}_90th_percentile",
+                "p10_forecast": f"{prefix}_10th_percentile",
+                "mean_forecast": f"{prefix}_value",
+            }
+        )
+
         rev_forecast_dat["submission_month"] = (
             rev_forecast_dat.automated_kpi_confidence_intervals_submission_month
         )
@@ -565,6 +643,8 @@ class MobileAdTilesForecastFlow(FlowSpec):
             "other_clicks",
             "other_cpc",
             "other_revenue",
+            "total_clicks",
+            "total_revenue",
         ]
 
         write_df = self.rev_forecast_dat[output_columns]

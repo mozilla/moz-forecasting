@@ -1,3 +1,6 @@
+# number of months of historical data to average over to get factors
+observed_months: 12
+
 # Revenue per Mille, agreed contractually with Admarketplace.
 RPM:
   AU: 0.099
@@ -42,6 +45,64 @@ direct_allocations:
       - US
     allocation: .9
     start_month: 2025-02
+
+
+# elgilibity rules for different product/platform combos
+elgibility:
+  tiles:
+    mobile:
+      function_call: IsElgibleTilesMobile(os_grouped, app_version_major, country, submission_date)
+      bq_function: >
+        CREATE TEMP FUNCTION IsElgibleTilesMobile(os STRING,
+                                              version NUMERIC,
+                                              country STRING,
+                                              submission_date DATE)
+        RETURNS BOOL
+        AS ((os = "Android"
+                AND  version > 100
+                AND (
+                    (country = "US" AND submission_date >= "2022-09-20")
+                    OR (country = "DE" AND submission_date >= "2022-12-05")
+                    OR (country IN ("BR", "CA", "ES",
+                                        "FR", "GB", "IN", "AU")
+                            AND submission_date >= "2023-05-15")))
+            OR (os = "iOS"
+                AND version > 101
+                AND (
+                    (country = "US"
+                        AND submission_date >= "2022-10-04")
+                    OR (country = "DE"
+                        AND submission_date >= "2022-12-05")
+                    OR (country IN ("BR", "CA", "ES",
+                                        "FR", "GB", "IN", "AU")
+                        AND submission_date >= "2023-05-15")
+                ))) ;
+    desktop:
+      function_call: IsElgibleTilesDesktop(app_name, app_version_major, country, submission_date)
+      bq_function: >
+        CREATE TEMP FUNCTION IsElgibleTilesDesktop(app_name STRING,
+                                              version NUMERIC,
+                                              country STRING,
+                                              submission_date DATE)
+        RETURNS BOOL
+        AS (app_name = "Firefox Desktop"
+            AND (
+              -- desktop tiles default on
+              (
+                submission_date >= "2021-09-07"
+                AND version > 92
+                AND country IN UNNEST(
+                  ["AU", "BR", "CA", "DE", "ES", "FR", "GB", "IN", "IT", "MX", "US"]
+                )
+              )
+              OR
+              -- Japan desktop now default on
+              (
+                submission_date >= "2022-01-25"
+                AND version > 92
+                AND country = "JP"
+              )
+            ));
 
 # specify the output database and table
 # to write the data to
