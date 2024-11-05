@@ -61,7 +61,7 @@ direct_allocations:
       - DE
       - GB
       - US
-    allocation: 1
+    allocation: .98
     start_month: 2025-01
 
 
@@ -185,6 +185,61 @@ new_markets:
       - FR
       - GB
       - IT
+  KR:
+    countries_to_use:
+      - JP
+      - AU
+      - IN
+  SG:
+    countries_to_use:
+      - JP
+      - AU
+      - IN
+  ID:
+    countries_to_use:
+      - JP
+      - AU
+      - IN
+  PH: 
+    countries_to_use:
+      - JP
+      - AU
+      - IN
+  VN: 
+    countries_to_use:
+      - JP
+      - AU
+      - IN
+  HK: 
+    countries_to_use:
+      - JP
+      - AU
+      - IN
+  AR: 
+    countries_to_use:
+      - JP
+      - AU
+      - IN
+  CL: 
+    countries_to_use:
+      - JP
+      - AU
+      - IN
+  PE: 
+    countries_to_use:
+      - JP
+      - AU
+      - IN
+  CO: 
+    countries_to_use:
+      - JP
+      - AU
+      - IN
+  VE: 
+    countries_to_use:
+      - JP
+      - AU
+      - IN
 
 # specify the output database and table
 # to write the data to
