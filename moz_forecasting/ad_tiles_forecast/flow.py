@@ -147,7 +147,7 @@ class AdTilesForecastFlow(FlowSpec):
             "moz-fx-data-shared-prod.telemetry.active_users_aggregates"
         )
         self.event_aggregates_table = (
-            "moz-fx-data-shared-prod.contextual_services.event_aggregates"
+            "moz-fx-data-shared-prod.contextual_services.event_aggregates_spons_tiles"
         )
         self.newtab_aggregates_table = (
             "mozdata.telemetry.newtab_clients_daily_aggregates"
@@ -450,21 +450,20 @@ class AdTilesForecastFlow(FlowSpec):
                                 (FORMAT_DATE('%Y-%m', submission_date ))
                                     AS submission_month,
                                 form_factor,
-                                SUM(IF(position <= 2, event_count, 0))
+                                SUM(IF(position <= 2, impression_count, 0))
                                     AS sponsored_impressions_1and2,
-                                SUM(event_count) AS sponsored_impressions_all,
-                                SUM(IF(position = 1, event_count, 0))
+                                SUM(IF(position <=3, impression_count, 0))
+                                     AS sponsored_impressions_all,
+                                SUM(IF(position = 1, impression_count, 0))
                                     AS sponsored_impressions_1,
-                                 SUM(IF(position = 2, event_count, 0))
+                                 SUM(IF(position = 2, impression_count, 0))
                                     AS sponsored_impressions_2,
-                                SUM(IF(position = 3, event_count, 0))
+                                SUM(IF(position = 3, impression_count, 0))
                                     AS sponsored_impressions_3,
                             FROM
                                 `{self.event_aggregates_table}`
                             WHERE
-                                event_type = 'impression'
-                                AND source = 'topsites'
-                                AND submission_date >= '{query_start_date}'
+                                submission_date >= '{query_start_date}'
                                 AND submission_date < '{query_end_date}'
                             GROUP BY
                                 country,
@@ -505,8 +504,6 @@ class AdTilesForecastFlow(FlowSpec):
         newtab_visits["submission_month"] = pd.to_datetime(
             newtab_visits["submission_month"]
         )
-        newtab_visits["total_inventory_1and2"] = newtab_visits["newtab_visits"] * 2
-        newtab_visits["total_inventory_1to3"] = newtab_visits["newtab_visits"] * 3
         self.newtab_vists = newtab_visits
         self.next(self.get_fill_rate)
 
@@ -523,11 +520,11 @@ class AdTilesForecastFlow(FlowSpec):
         )
         impressions_with_newtab["fill_rate"] = (
             impressions_with_newtab.sponsored_impressions_1and2
-            / impressions_with_newtab.total_inventory_1and2
+            / impressions_with_newtab.newtab_visits
         )
         impressions_with_newtab["fill_rate_all_tiles"] = (
             impressions_with_newtab.sponsored_impressions_all
-            / impressions_with_newtab.total_inventory_1to3
+            / impressions_with_newtab.newtab_visits
         )
 
         impressions_with_newtab["fill_rate_tile1"] = (
@@ -590,11 +587,11 @@ class AdTilesForecastFlow(FlowSpec):
         observed_fill_rate_by_country = self.fill_rate.loc[
             (self.fill_rate.submission_month <= self.observed_end_date)
             & (self.fill_rate.submission_month >= lookback_start_date),
-            ["country"] + self.fill_rate_columns,
+            ["country", "form_factor"] + self.fill_rate_columns,
         ]
 
         self.fill_rate_by_country = observed_fill_rate_by_country.groupby(
-            "country", as_index=False
+            ["country", "form_factor"], as_index=False
         ).mean()
 
         self.next(self.calculate_inventory_per_client)
@@ -614,7 +611,7 @@ class AdTilesForecastFlow(FlowSpec):
         ) & (self.newtab_vists.submission_month <= self.observed_end_date)
         inventory_observed = self.newtab_vists.loc[
             inventory_observed_data_filter,
-            ["submission_month", "country", "total_inventory_1and2"],
+            ["submission_month", "country", "newtab_visits"],
         ]
 
         dau_by_country = self.dau_by_country.loc[
@@ -629,7 +626,7 @@ class AdTilesForecastFlow(FlowSpec):
             on=["country", "submission_month"],
         )
         observed_data["inv_per_client"] = (
-            observed_data["total_inventory_1and2"] / observed_data["total_active"]
+            observed_data["newtab_visits"] / observed_data["total_active"]
         )
 
         inventory_per_client = observed_data.groupby("country", as_index=False).mean()
@@ -669,8 +666,11 @@ class AdTilesForecastFlow(FlowSpec):
         This is obtained by multiplying the inventory forecast
         by the fill rate
         """
+        fill_rate_by_country = self.fill_rate_by_country[
+            self.fill_rate_by_country.form_factor == "desktop"
+        ]
         self.revenue_forecast = pd.merge(
-            self.inventory_forecast, self.fill_rate_by_country, on="country"
+            self.inventory_forecast, fill_rate_by_country, on="country"
         )
 
         # add a column for all fill_rate columns
@@ -768,7 +768,11 @@ class AdTilesForecastFlow(FlowSpec):
                 df[revenue_col] = df[impression_col] * df["RPM"] / 1000
                 df["forecast_type"] = forecast_type
 
+        revenue_forecast = pd.concat([no_direct_sales_df, direct_sales_df])
+
         self.output_df = revenue_forecast
+
+        print(self.output_df)
 
         self.next(self.end)
 
