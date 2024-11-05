@@ -613,6 +613,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
                 "p10_forecast": f"{prefix}_10th_percentile",
                 "mean_forecast": f"{prefix}_value",
             }
+        )
 
         rev_forecast_dat["submission_month"] = (
             rev_forecast_dat.automated_kpi_confidence_intervals_submission_month
