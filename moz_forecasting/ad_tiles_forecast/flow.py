@@ -785,40 +785,53 @@ class AdTilesForecastFlow(FlowSpec):
         write_df["forecast_month"] = self.first_day_of_current_month
         write_df = write_df.merge(self.forecast_predicted_at, how="inner", on="device")
 
-        # assert set(write_df.columns) == {
-        #     "forecast_month",
-        #     "forecast_predicted_at",
-        #     "country",
-        #     "submission_month",
-        #     "inventory_forecast",
-        #     "expected_impressions",
-        #     "expected_impressions_all_tiles",
-        #     "revenue",
-        #     "device",
-        #     "forecast_type",
-        # }
-        # if not self.write:
-        #     return
+        write_df = write_df[
+            [
+                "forecast_month",
+                "forecast_predicted_at",
+                "country",
+                "submission_month",
+                "inventory_forecast",
+                "expected_impressions",
+                "revenue",
+                "device",
+                "forecast_type",
+            ]
+        ]
 
-        # if self.test_mode and GCP_PROJECT_NAME != "moz-fx-mfouterbounds-prod-f98d":
-        #     # case where testing locally
-        #     output_info = self.config_data["output"]["test"]
-        # elif self.test_mode and GCP_PROJECT_NAME == "moz-fx-mfouterbounds-prod-f98d":
-        #     # case where testing in outerbounds, just want to exit
-        #     return
-        # else:
-        #     output_info = self.config_data["output"]["prod"]
-        # target_table = (
-        #     f"{output_info['project']}.{output_info['database']}.{output_info['table']}"
-        # )
-        # job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-        # job_config.schema_update_options = [
-        #     bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION
-        # ]
+        assert set(write_df.columns) == {
+            "forecast_month",
+            "forecast_predicted_at",
+            "country",
+            "submission_month",
+            "inventory_forecast",
+            "expected_impressions",
+            "revenue",
+            "device",
+            "forecast_type",
+        }
+        if not self.write or "output" not in self.config_data:
+            return
 
-        # client = bigquery.Client(project=GCP_PROJECT_NAME)
+        if self.test_mode and GCP_PROJECT_NAME != "moz-fx-mfouterbounds-prod-f98d":
+            # case where testing locally
+            output_info = self.config_data["output"]["test"]
+        elif self.test_mode and GCP_PROJECT_NAME == "moz-fx-mfouterbounds-prod-f98d":
+            # case where testing in outerbounds, just want to exit
+            return
+        else:
+            output_info = self.config_data["output"]["prod"]
+        target_table = (
+            f"{output_info['project']}.{output_info['database']}.{output_info['table']}"
+        )
+        job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
+        job_config.schema_update_options = [
+            bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION
+        ]
 
-        # client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
+
+        client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
 
 
 if __name__ == "__main__":

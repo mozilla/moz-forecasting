@@ -241,14 +241,4 @@ new_markets:
       - AU
       - IN
 
-# specify the output database and table
-# to write the data to
-output:
-  test:
-    project: moz-fx-data-bq-data-science
-    database: jsnyder
-    table: amp_rpm_forecasts
-  prod:
-    project: mozdata
-    database: revenue_cat3_analysis
-    table: amp_rpm_forecasts
+# no output because we don't want to write
