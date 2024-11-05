@@ -1,0 +1,199 @@
+# number of months of historical data to average over to get factors
+observed_months: 6
+observed_months_fill_rate: 6
+
+# Revenue per Mille, agreed contractually with Admarketplace.
+RPM:
+  AU: 0.099
+  BR: 0.066
+  CA: 0.330
+  DE: 0.528
+  ES: 0.198
+  FR: 0.231
+  GB: 0.385
+  IN: 0.044
+  IT: 0.363
+  JP: 0.022
+  MX: 0.209
+  US: 0.627
+  BE: 0.050 # baseline europe expansion starts here
+  AT: 0.050
+  PL: 0.050
+  NL: 0.050
+  SE: 0.050
+  CH: 0.050 #switzerland
+  KR: 0.050 # Asia/Pacific stretch countries start here
+  SG: 0.050
+  ID: 0.050
+  PH: 0.050
+  VN: 0.050
+  HK: 0.050
+  AR: 0.050 # Latin America stretch countries start here
+  CL: 0.050
+  PE: 0.050
+  CO: 0.050
+  VE: 0.050
+
+# list of direct allocation time windows
+# each element in the list is a timeframe
+# for the countries specified in markets 
+# for which the fraction in allocation is sent
+# to Ad Marketplace.  start_month and end_month
+# specify the start and end of the time window inclusively
+# Both are optional, and the earliest and latest values
+# in the data are used to replace them respectively if left out
+direct_allocations:
+  - markets:
+      - DE
+      - GB
+      - US
+    allocation: .95
+    start_month: 2023-10
+    end_month: 2023-12
+  - markets:
+      - DE
+      - GB
+      - US
+    allocation: .95
+    start_month: 2024-01
+    end_month: 2024-12
+  - markets:
+      - DE
+      - GB
+      - US
+    allocation: 1
+    start_month: 2025-01
+
+
+# elgilibity rules for different product/platform combos
+elgibility:
+  tiles:
+    mobile:
+      function_call: IsElgibleTilesMobile(os_grouped, app_version_major, country, submission_date)
+      bq_function: >
+        CREATE TEMP FUNCTION IsElgibleTilesMobile(os STRING,
+                                              version NUMERIC,
+                                              country STRING,
+                                              submission_date DATE)
+        RETURNS BOOL
+        AS ((os = "Android"
+                AND  version > 100
+                AND (
+                    (country = "US" AND submission_date >= "2022-09-20")
+                    OR (country = "DE" AND submission_date >= "2022-12-05")
+                    OR (country IN ("BR", "CA", "ES",
+                                        "FR", "GB", "IN", "AU")
+                            AND submission_date >= "2023-05-15")))
+            OR (os = "iOS"
+                AND version > 101
+                AND (
+                    (country = "US"
+                        AND submission_date >= "2022-10-04")
+                    OR (country = "DE"
+                        AND submission_date >= "2022-12-05")
+                    OR (country IN ("BR", "CA", "ES",
+                                        "FR", "GB", "IN", "AU")
+                        AND submission_date >= "2023-05-15")
+                ))) ;
+    desktop:
+      function_call: IsElgibleTilesDesktop(app_name, app_version_major, country, submission_date)
+      bq_function: >
+        CREATE TEMP FUNCTION IsElgibleTilesDesktop(app_name STRING,
+                                              version NUMERIC,
+                                              country STRING,
+                                              submission_date DATE)
+        RETURNS BOOL
+        AS (app_name = "Firefox Desktop"
+            AND (
+              -- desktop tiles default on
+              (
+                submission_date >= "2021-09-07"
+                AND version > 92
+                AND country IN ("AU", "BR", "CA", "DE", "ES", "FR", "GB", "IN", "IT", "MX", "US")
+              )
+              OR
+              -- Japan desktop now default on
+              (
+                submission_date >= "2022-01-25"
+                AND version > 92
+                AND country = "JP"
+              )
+              OR
+              -- 2025 baseline expansion countries
+                            (
+                submission_date >= "2021-09-07"
+                AND version > 92
+                AND country IN ("BE","AT","PL","NL","SE","CH")
+              )
+              OR
+              -- 2025 stretch asia/pacific
+                            (
+                submission_date >= "2021-09-07"
+                AND version > 92
+                AND country IN ("KR","SG","ID","PH","VN","HK")
+              )
+              OR
+              -- 2025 stretch americas
+                            (
+                submission_date >= "2021-09-07"
+                AND version > 92
+                AND country IN ("AR","CL","PE","CO","VE")
+              )
+            ));
+
+# impute new markets
+new_markets:
+  BE:
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  AT: 
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  PL: 
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  NL: 
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  SE: 
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  CH: 
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+
+# specify the output database and table
+# to write the data to
+output:
+  test:
+    project: moz-fx-data-bq-data-science
+    database: jsnyder
+    table: amp_rpm_forecasts
+  prod:
+    project: mozdata
+    database: revenue_cat3_analysis
+    table: amp_rpm_forecasts
