@@ -12,9 +12,13 @@ There are additionally helper functions in (TBD when kpi_forecasting branch gets
 
 This project uses [uv](https://docs.astral.sh/uv/) for project and dependency management.  To be able to use it you'll need to have it installed on the system you're using.  This is very easy to do with pip (`pip install uv`).  Once it's installed, you can install the new dependencies in a virtualenv with `uv sync` in the root directory of the project.  This will create a new virtual environment in a new `.venv` directory.
 
+To use darts, there some additionaly dependencies you may need.  For example, installing libomp on a mac with homebrew with `brew install libomp`
+
 Once the virtualenv is set up, a pipeline can be run locally with `uv run <PATH TO FLOW FILE> run`
 
 To run locally the `GCP_PROJECT_NAME` environment variable must be set to a profile that the user can create a client from. For most people data scientists `mozdata` will work.  This can be set via an rc file with the command `export GCP_PROJECT_NAME=mozdata`, or it can be put in front of the command to run the job like `METAFLOW_PROFILE=local GCP_PROJECT_NAME=mozdata uv run flows/ad_tiles_forecast.py run`
+
+To run a notebook that can access the local metaflow, put `%env METAFLOW_PROFILE=local` in a cell **before** loading the metaflow package.
 
 #### Running on local after setting up outerbounds
 When you set up outerbounds (see next section), a new metaflow config file is created.  This means you'll be using Outerbounds' perimeters for authentication by default from then on.  To use your local authentication, you want to make sure there is a file at `~/.metaflowconfig/config_local.json` that only has an empty json object in it (this might be created by default, if not you can create it yourself). You can then run with this local profile by doing: `METAFLOW_PROFILE=local uv run flows/ad_tiles_forecast.py run`.  See: (https://outerbounds.com/docs/use-multiple-metaflow-configs/)
