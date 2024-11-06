@@ -769,8 +769,10 @@ class AdTilesForecastFlow(FlowSpec):
                 )
                 revenue_col = impression_col.replace("expected_impressions", "revenue")
                 if revenue_col[-5:] == "tile3":
+                    # corresponds to third tile, use tile3 RPM
                     df[revenue_col] = df[impression_col] * df["RPM_3"] / 1000
                 else:
+                    # all others apply tiles 1 and 2 RPM
                     df[revenue_col] = df[impression_col] * df["RPM"] / 1000
                 df["forecast_type"] = forecast_type
 
