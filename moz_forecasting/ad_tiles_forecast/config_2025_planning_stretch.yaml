@@ -4,35 +4,93 @@ observed_months_fill_rate: 6
 
 # Revenue per Mille, agreed contractually with Admarketplace.
 RPM:
-  AU: 0.099
-  BR: 0.066
-  CA: 0.330
-  DE: 0.528
-  ES: 0.198
-  FR: 0.231
-  GB: 0.385
-  IN: 0.044
-  IT: 0.363
-  JP: 0.022
-  MX: 0.209
-  US: 0.627
-  BE: 0.050 # baseline europe expansion starts here
-  AT: 0.050
-  PL: 0.050
-  NL: 0.050
-  SE: 0.050
-  CH: 0.050 #switzerland
-  KR: 0.050 # Asia/Pacific stretch countries start here
-  SG: 0.050
-  ID: 0.050
-  PH: 0.050
-  VN: 0.050
-  HK: 0.050
-  AR: 0.050 # Latin America stretch countries start here
-  CL: 0.050
-  PE: 0.050
-  CO: 0.050
-  VE: 0.050
+  AU: 
+    tiles_1_and_2: 0.099
+    tile3: .077
+  BR: 
+    tiles_1_and_2: 0.066
+    tile3: 0.019
+  CA: 
+    tiles_1_and_2: 0.330
+    tile3: 0.299
+  DE: 
+    tiles_1_and_2: 0.528
+    tile3: 0.175
+  ES: 
+    tiles_1_and_2: 0.198
+    tile3: 0.060
+  FR: 
+    tiles_1_and_2: 0.231
+    tile3: 0.0703
+  GB: 
+    tiles_1_and_2: 0.385
+    tile3: 0.122
+  IN: 
+    tiles_1_and_2: 0.044
+    tile3: 0
+  IT: 
+    tiles_1_and_2: 0.363
+    tile3: 0.122
+  JP:
+    tiles_1_and_2: 0.022
+    tile3: 0.0072
+  MX:
+    tiles_1_and_2: 0.209
+    tile3: 0.0649
+  US: 
+    tiles_1_and_2: 0.627
+    tile3: 0.205
+  BE: 
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  AT:
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  PL:
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  NL:
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  SE: 
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  CH: 
+    tiles_1_and_2: 0.050
+    tile3: 0.016 #switzerland
+  KR: # Asia/Pacific stretch countries start here
+    tiles_1_and_2: 0.050
+    tile3: 0.016 
+  SG: 
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  ID: 
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  PH: 
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  VN: 
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  HK: 
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  AR: # Latin America stretch countries start here
+    tiles_1_and_2: 0.050
+    tile3: 0.016 
+  CL: 
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  PE: 
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  CO: 
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  VE:  
+    tiles_1_and_2: 0.050
+    tile3: 0.016
 
 # list of direct allocation time windows
 # each element in the list is a timeframe

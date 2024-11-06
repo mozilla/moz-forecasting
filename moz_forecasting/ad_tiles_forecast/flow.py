@@ -734,7 +734,10 @@ class AdTilesForecastFlow(FlowSpec):
         RPMs = self.config_data["RPM"]
 
         RPM_df = pd.DataFrame(
-            [{"country": key, "RPM": val} for key, val in RPMs.items()]
+            [
+                {"country": key, "RPM": val["tiles_1_and_2"], "RPM_3": val["tile3"]}
+                for key, val in RPMs.items()
+            ]
         )
 
         revenue_forecast = pd.merge(self.revenue_forecast, RPM_df, on="country")
@@ -765,10 +768,19 @@ class AdTilesForecastFlow(FlowSpec):
                     * self.revenue_forecast["direct_sales_allocations"]
                 )
                 revenue_col = impression_col.replace("expected_impressions", "revenue")
-                df[revenue_col] = df[impression_col] * df["RPM"] / 1000
+                if revenue_col[-5:] == "tile3":
+                    df[revenue_col] = df[impression_col] * df["RPM_3"] / 1000
+                else:
+                    df[revenue_col] = df[impression_col] * df["RPM"] / 1000
                 df["forecast_type"] = forecast_type
 
         revenue_forecast = pd.concat([no_direct_sales_df, direct_sales_df])
+
+        # overwrite revenue_all_tiles to account for different RPM rates
+        individual_tile_columns = ["revenue_tile1", "revenue_tile2", "revenue_tile3"]
+        revenue_forecast["revenue_all_tiles"] = revenue_forecast[
+            individual_tile_columns
+        ].sum(axis=1)
 
         self.output_df = revenue_forecast
 
