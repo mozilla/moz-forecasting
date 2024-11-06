@@ -217,28 +217,23 @@ new_markets:
       - IN
   AR: 
     countries_to_use:
-      - JP
-      - AU
-      - IN
+      - MX
+      - BR
   CL: 
     countries_to_use:
-      - JP
-      - AU
-      - IN
+      - MX
+      - BR
   PE: 
     countries_to_use:
-      - JP
-      - AU
-      - IN
+      - MX
+      - BR
   CO: 
     countries_to_use:
-      - JP
-      - AU
-      - IN
+      - MX
+      - BR
   VE: 
     countries_to_use:
-      - JP
-      - AU
-      - IN
+      - MX
+      - BR
 
-# no output because we don't want to write
+# no output info because we don't want to write
