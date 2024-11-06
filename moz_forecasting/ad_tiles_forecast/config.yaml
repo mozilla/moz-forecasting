@@ -1,5 +1,6 @@
 # number of months of historical data to average over to get factors
 observed_months: 12
+observed_months_fill_rate: 6
 
 # Revenue per Mille, agreed contractually with Admarketplace.
 RPM:
