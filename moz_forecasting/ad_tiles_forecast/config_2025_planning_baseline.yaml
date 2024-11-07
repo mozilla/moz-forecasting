@@ -1,0 +1,203 @@
+# number of months of historical data to average over to get factors
+observed_months: 6
+observed_months_fill_rate: 6
+
+# Revenue per Mille, agreed contractually with Admarketplace.
+RPM:
+  AU: 
+    tiles_1_and_2: 0.099
+    tile3: .077
+  BR: 
+    tiles_1_and_2: 0.066
+    tile3: 0.019
+  CA: 
+    tiles_1_and_2: 0.330
+    tile3: 0.299
+  DE: 
+    tiles_1_and_2: 0.528
+    tile3: 0.187
+  ES: 
+    tiles_1_and_2: 0.198
+    tile3: 0.066
+  FR: 
+    tiles_1_and_2: 0.231
+    tile3: 0.077
+  GB: 
+    tiles_1_and_2: 0.385
+    tile3: 0.132
+  IN: 
+    tiles_1_and_2: 0.044
+    tile3: 0
+  IT: 
+    tiles_1_and_2: 0.363
+    tile3: 0.132
+  JP:
+    tiles_1_and_2: 0.022
+    tile3: 0.0072
+  MX:
+    tiles_1_and_2: 0.209
+    tile3: 0.0649
+  US: 
+    tiles_1_and_2: 0.627
+    tile3: 0.220
+  BE: 
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  AT:
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  PL:
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  NL:
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  SE: 
+    tiles_1_and_2: 0.050
+    tile3: 0.016
+  CH: 
+    tiles_1_and_2: 0.050
+    tile3: 0.016 #switzerland
+
+# list of direct allocation time windows
+# each element in the list is a timeframe
+# for the countries specified in markets 
+# for which the fraction in allocation is sent
+# to Ad Marketplace.  start_month and end_month
+# specify the start and end of the time window inclusively
+# Both are optional, and the earliest and latest values
+# in the data are used to replace them respectively if left out
+direct_allocations:
+  - markets:
+      - DE
+      - GB
+      - US
+    allocation: .95
+    start_month: 2023-10
+    end_month: 2023-12
+  - markets:
+      - DE
+      - GB
+      - US
+    allocation: .95
+    start_month: 2024-01
+    end_month: 2024-12
+  - markets:
+      - DE
+      - GB
+      - US
+    allocation: 1
+    start_month: 2025-01
+
+
+# elgilibity rules for different product/platform combos
+elgibility:
+  tiles:
+    mobile:
+      function_call: IsElgibleTilesMobile(os_grouped, app_version_major, country, submission_date)
+      bq_function: >
+        CREATE TEMP FUNCTION IsElgibleTilesMobile(os STRING,
+                                              version NUMERIC,
+                                              country STRING,
+                                              submission_date DATE)
+        RETURNS BOOL
+        AS ((os = "Android"
+                AND  version > 100
+                AND (
+                    (country = "US" AND submission_date >= "2022-09-20")
+                    OR (country = "DE" AND submission_date >= "2022-12-05")
+                    OR (country IN ("BR", "CA", "ES",
+                                        "FR", "GB", "IN", "AU")
+                            AND submission_date >= "2023-05-15")))
+            OR (os = "iOS"
+                AND version > 101
+                AND (
+                    (country = "US"
+                        AND submission_date >= "2022-10-04")
+                    OR (country = "DE"
+                        AND submission_date >= "2022-12-05")
+                    OR (country IN ("BR", "CA", "ES",
+                                        "FR", "GB", "IN", "AU")
+                        AND submission_date >= "2023-05-15")
+                ))) ;
+    desktop:
+      function_call: IsElgibleTilesDesktop(app_name, app_version_major, country, submission_date)
+      bq_function: >
+        CREATE TEMP FUNCTION IsElgibleTilesDesktop(app_name STRING,
+                                              version NUMERIC,
+                                              country STRING,
+                                              submission_date DATE)
+        RETURNS BOOL
+        AS (app_name = "Firefox Desktop"
+            AND (
+              -- desktop tiles default on
+              (
+                submission_date >= "2021-09-07"
+                AND version > 92
+                AND country IN UNNEST(
+                  ["AU", "BR", "CA", "DE", "ES", "FR", "GB", "IN", "IT", "MX", "US"]
+                )
+              )
+              OR
+              -- Japan desktop now default on
+              (
+                submission_date >= "2022-01-25"
+                AND version > 92
+                AND country = "JP"
+              )
+              OR
+              -- 2025 baseline expansion countries
+                            (
+                submission_date >= "2021-09-07"
+                AND version > 92
+                AND country IN ("BE","AT","PL","NL","SE","CH")
+              )
+            ));
+
+# impute new markets
+new_markets:
+  BE:
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  AT: 
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  PL: 
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  NL: 
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  SE: 
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  CH: 
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+
+# no output info because we don't want to write
+
