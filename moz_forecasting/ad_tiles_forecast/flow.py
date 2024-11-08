@@ -449,7 +449,6 @@ class AdTilesForecastFlow(FlowSpec):
                                 country,
                                 (FORMAT_DATE('%Y-%m', submission_date ))
                                     AS submission_month,
-                                form_factor,
                                 SUM(IF(position <= 2, impression_count, 0))
                                     AS sponsored_impressions_1and2,
                                 SUM(IF(position <=3, impression_count, 0))
@@ -465,10 +464,10 @@ class AdTilesForecastFlow(FlowSpec):
                             WHERE
                                 submission_date >= '{query_start_date}'
                                 AND submission_date < '{query_end_date}'
+                                AND form_factor = "desktop"
                             GROUP BY
                                 country,
-                                submission_month,
-                                form_factor"""
+                                submission_month"""
         client = bigquery.Client(project=GCP_PROJECT_NAME)
         impressions = client.query(tile_impression_data_query).to_dataframe()
         impressions["submission_month"] = pd.to_datetime(
@@ -482,7 +481,7 @@ class AdTilesForecastFlow(FlowSpec):
         """Get newtab visits by country."""
         query_start_date = self.observed_start_date.strftime("%Y-%m-%d")
         query_end_date = self.first_day_of_current_month.strftime("%Y-%m-%d")
-        countries = self.config_data["RPM"].keys()
+        countries = self.config_data["CPM"].keys()
         countries_string = ",".join(f"'{el}'" for el in countries)
         query = f""" SELECT
                     DATE_TRUNC(submission_date, MONTH) AS submission_month,
@@ -504,7 +503,7 @@ class AdTilesForecastFlow(FlowSpec):
         newtab_visits["submission_month"] = pd.to_datetime(
             newtab_visits["submission_month"]
         )
-        self.newtab_vists = newtab_visits
+        self.newtab_visits = newtab_visits
         self.next(self.get_fill_rate)
 
     @step
@@ -516,12 +515,14 @@ class AdTilesForecastFlow(FlowSpec):
         """
         # join on newtab vists and calculate fill rates
         impressions_with_newtab = self.impressions.merge(
-            self.newtab_vists, on=["submission_month", "country"], how="inner"
+            self.newtab_visits, on=["submission_month", "country"], how="inner"
         )
+
         impressions_with_newtab["fill_rate"] = (
             impressions_with_newtab.sponsored_impressions_1and2
             / impressions_with_newtab.newtab_visits
         )
+
         impressions_with_newtab["fill_rate_all_tiles"] = (
             impressions_with_newtab.sponsored_impressions_all
             / impressions_with_newtab.newtab_visits
@@ -555,7 +556,6 @@ class AdTilesForecastFlow(FlowSpec):
         if "new_markets" in self.config_data:
             fill_rate_columns = [
                 "submission_month",
-                "form_factor",
                 "country",
             ] + self.fill_rate_columns
             imputation_data = self.config_data["new_markets"]
@@ -572,9 +572,11 @@ class AdTilesForecastFlow(FlowSpec):
                     ),
                     fill_rate_columns,
                 ]
-                impute_grouped = impute_with.groupby(
-                    ["submission_month", "form_factor", "country"], as_index=False
-                ).mean()
+                impute_grouped = (
+                    impute_with.drop(columns=["country"])
+                    .groupby(["submission_month"], as_index=False)
+                    .mean()
+                )
                 impute_grouped["country"] = country
                 imputed_data_list.append(impute_grouped)
             fill_rate_with_imputation = pd.concat(imputed_data_list)
@@ -587,11 +589,11 @@ class AdTilesForecastFlow(FlowSpec):
         observed_fill_rate_by_country = self.fill_rate.loc[
             (self.fill_rate.submission_month <= self.observed_end_date)
             & (self.fill_rate.submission_month >= lookback_start_date),
-            ["country", "form_factor"] + self.fill_rate_columns,
+            ["country"] + self.fill_rate_columns,
         ]
 
         self.fill_rate_by_country = observed_fill_rate_by_country.groupby(
-            ["country", "form_factor"], as_index=False
+            ["country"], as_index=False
         ).mean()
 
         self.next(self.calculate_inventory_per_client)
@@ -607,9 +609,9 @@ class AdTilesForecastFlow(FlowSpec):
         """
         # Merge country level KPI forecast with inventory data
         inventory_observed_data_filter = (
-            self.newtab_vists.submission_month >= self.observed_start_date
-        ) & (self.newtab_vists.submission_month <= self.observed_end_date)
-        inventory_observed = self.newtab_vists.loc[
+            self.newtab_visits.submission_month >= self.observed_start_date
+        ) & (self.newtab_visits.submission_month <= self.observed_end_date)
+        inventory_observed = self.newtab_visits.loc[
             inventory_observed_data_filter,
             ["submission_month", "country", "newtab_visits"],
         ]
@@ -635,15 +637,15 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def calculate_forecasted_inventory_by_country(self):
-        """Calculate inventory_forecast.
+        """Calculate newtab inventory (inventory_forecast).
 
         This is obtained by merging country averages onto forecast cdau
         and multiplying on the share_by_market and inv_per_client
         country-level factors
         """
         # subset to desktop and relevant countries
-        # get markets from RPM
-        countries = self.config_data["RPM"].keys()
+        # get markets from CPM
+        countries = self.config_data["CPM"].keys()
 
         dau_forecast = self.dau_forecast_by_country.loc[
             (self.dau_forecast_by_country["platform"] == "desktop")
@@ -661,14 +663,12 @@ class AdTilesForecastFlow(FlowSpec):
 
     @step
     def add_impression_forecast(self):
-        """Add expected_impressions.
+        """Add tile impressions (expected_impressions).
 
         This is obtained by multiplying the inventory forecast
         by the fill rate
         """
-        fill_rate_by_country = self.fill_rate_by_country[
-            self.fill_rate_by_country.form_factor == "desktop"
-        ]
+        fill_rate_by_country = self.fill_rate_by_country
         self.revenue_forecast = pd.merge(
             self.inventory_forecast, fill_rate_by_country, on="country"
         )
@@ -731,30 +731,30 @@ class AdTilesForecastFlow(FlowSpec):
         when direct sales are remove and the forecast
         assuming all impressions got to AMP, respectively
         """
-        RPMs = self.config_data["RPM"]
+        CPMs = self.config_data["CPM"]
 
-        RPM_df = pd.DataFrame(
+        CPM_df = pd.DataFrame(
             [
-                {"country": key, "RPM": val["tiles_1_and_2"], "RPM_3": val["tile3"]}
-                for key, val in RPMs.items()
+                {"country": key, "CPM": val["tiles_1_and_2"], "CPM_3": val["tile3"]}
+                for key, val in CPMs.items()
             ]
         )
 
-        revenue_forecast = pd.merge(self.revenue_forecast, RPM_df, on="country")
+        revenue_forecast = pd.merge(self.revenue_forecast, CPM_df, on="country")
 
-        # Desktop RPMs were increased by 10% in summer of 2024
+        # Desktop CPMs were increased by 10% in summer of 2024
         # with an effective date of 2024-09-30
         # as part of the AMP contract renewal conversations.
         after_valid_date = revenue_forecast["submission_month"] <= "2024-09-01"
-        revenue_forecast.loc[after_valid_date, "RPM"] = (
-            revenue_forecast.loc[after_valid_date, "RPM"] * 1 / 1.1
+        revenue_forecast.loc[after_valid_date, "CPM"] = (
+            revenue_forecast.loc[after_valid_date, "CPM"] * 1 / 1.1
         )
 
         # add a revenue column for each impression column
         # create two dfs, one with direct sales and one without
         # and concat
 
-        # multiply inventory by RPMs
+        # multiply inventory by CPMs
         no_direct_sales_df = revenue_forecast.copy()
         direct_sales_df = revenue_forecast.copy()
         for impression_col in self.expected_impression_columns:
@@ -769,24 +769,22 @@ class AdTilesForecastFlow(FlowSpec):
                 )
                 revenue_col = impression_col.replace("expected_impressions", "revenue")
                 if revenue_col[-5:] == "tile3":
-                    # corresponds to third tile, use tile3 RPM
-                    df[revenue_col] = df[impression_col] * df["RPM_3"] / 1000
+                    # corresponds to third tile, use tile3 CPM
+                    df[revenue_col] = df[impression_col] * df["CPM_3"] / 1000
                 else:
-                    # all others apply tiles 1 and 2 RPM
-                    df[revenue_col] = df[impression_col] * df["RPM"] / 1000
+                    # all others apply tiles 1 and 2 CPM
+                    df[revenue_col] = df[impression_col] * df["CPM"] / 1000
                 df["forecast_type"] = forecast_type
 
         revenue_forecast = pd.concat([no_direct_sales_df, direct_sales_df])
 
-        # overwrite revenue_all_tiles to account for different RPM rates
+        # overwrite revenue_all_tiles to account for different CPM rates
         individual_tile_columns = ["revenue_tile1", "revenue_tile2", "revenue_tile3"]
         revenue_forecast["revenue_all_tiles"] = revenue_forecast[
             individual_tile_columns
         ].sum(axis=1)
 
         self.output_df = revenue_forecast
-
-        print(self.output_df)
 
         self.next(self.end)
 
