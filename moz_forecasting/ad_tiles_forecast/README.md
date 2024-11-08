@@ -10,6 +10,9 @@ This flow forecasts the number of tiles available for desktop. Rather than forec
 The output table is indexed by country, month (`submission_month`), and whether or not the revenue column represents including or excluding direct sales (indicated by the values `with_direct_sales` and `no_direct_sales`, repsectively, in the `forecast_type` column).
 
 ### `inventory_forecast` derivation
+
+The forecast applies country-level factors to the DAU forecast.  In the code the dataframe exists as a pandas dataframe where each row is uniquely identified by country and time (specifically, `submission_month`).  Throughout the code, country-level factors are joined on to this dataframe by country as new columns, which are multiplied to the DAU forecast elementwise.  One can think of the DAU forecast as a collection of independent timeseries for each country, where scalar factors are calculated and applied to the timeseries (see the diagram below).  The scalar factors are obtained by doing operations on country timeseries and aggregating over time to product country-level, scalar factors:
+
 ![inventory forecast flow diagram](desktop_tiles_flow.drawio.png)
 The idea behind the inventory forecast is to execute the following steps:
 1. **get by-country dau forecast** The by-country dau forecast is obtained by multipling the global dau forecast by two scalar factors, a `share_by_market` factor and an `elgbility_factor`:
