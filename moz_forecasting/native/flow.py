@@ -29,14 +29,6 @@ class NativeForecastFlow(FlowSpec):
         default="moz_forecasting/native/config.yaml",
     )
 
-    test_mode = Parameter(
-        name="test_mode",
-        help="indicates whether or not run should affect production",
-        default=True,
-    )
-
-    write = Parameter(name="write", help="whether or not to write to BQ", default=False)
-
     set_forecast_start_month = Parameter(
         name="forecast_start_month",
         help="indicate historical month to set forecast date to in %Y-%m format",

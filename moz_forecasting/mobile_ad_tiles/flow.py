@@ -29,14 +29,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
         default="moz_forecasting/mobile_ad_tiles/config.yaml",
     )
 
-    test_mode = Parameter(
-        name="test_mode",
-        help="indicates whether or not run should affect production",
-        default=True,
-    )
-
-    write = Parameter(name="write", help="whether or not to write to BQ", default=False)
-
     set_forecast_month = Parameter(
         name="forecast_month",
         help="indicate historical month to set forecast date to in %Y-%m format",
