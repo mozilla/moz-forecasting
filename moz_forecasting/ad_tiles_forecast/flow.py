@@ -772,8 +772,8 @@ class AdTilesForecastFlow(FlowSpec):
         direct_sales_df = revenue_forecast.copy()
         for impression_col in self.expected_impression_columns:
             for forecast_type, df in {
-                "with_direct_sales": no_direct_sales_df,
-                "no_direct_sales": direct_sales_df,
+                False: no_direct_sales_df,
+                True: direct_sales_df,
             }.items():
                 impressions_direct_sales_col = impression_col + "_direct_sales"
                 df[impressions_direct_sales_col] = (
@@ -787,7 +787,7 @@ class AdTilesForecastFlow(FlowSpec):
                 else:
                     # all others apply tiles 1 and 2 CPM
                     df[revenue_col] = df[impression_col] * df["CPM"] / 1000
-                df["forecast_type"] = forecast_type
+                df["direct_sales_included"] = forecast_type
 
         revenue_forecast = pd.concat([no_direct_sales_df, direct_sales_df])
 
@@ -804,12 +804,12 @@ class AdTilesForecastFlow(FlowSpec):
     @step
     def end(self):
         """Write to BQ."""
-        id_vars = ["country", "submission_month", "forecast_type"]
+        id_vars = ["country", "submission_month", "direct_sales_included"]
         revenue_df = self.output_df[
             [
                 "country",
                 "submission_month",
-                "forecast_type",
+                "direct_sales_included",
                 "revenue_tile1",
                 "revenue_tile2",
                 "revenue_tile3",
@@ -827,7 +827,7 @@ class AdTilesForecastFlow(FlowSpec):
             [
                 "country",
                 "submission_month",
-                "forecast_type",
+                "direct_sales_included",
                 "expected_impressions_tile1",
                 "expected_impressions_tile2",
                 "expected_impressions_tile3",
@@ -873,7 +873,7 @@ class AdTilesForecastFlow(FlowSpec):
         schema = [
             bigquery.SchemaField("country", "STRING"),
             bigquery.SchemaField("submission_month", "DATETIME"),
-            bigquery.SchemaField("forecast_type", "STRING"),
+            bigquery.SchemaField("direct_sales_included", "BOOLEAN"),
             bigquery.SchemaField("device", "STRING"),
             bigquery.SchemaField("forecast_month", "DATETIME"),
             bigquery.SchemaField("forecast_predicted_at", "TIMESTAMP"),
