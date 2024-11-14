@@ -3,7 +3,7 @@ observed_months: 12
 observed_months_fill_rate: 4
 
 # Revenue per Mille, agreed contractually with Admarketplace.
-RPM:
+CPM:
   AU: 
     tiles_1_and_2: 0.099
     tile3: .077

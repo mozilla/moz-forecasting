@@ -58,6 +58,30 @@ CPM:
   CH: 
     tiles_1_and_2: 0.050
     tile3: 0.016 #switzerland
+  FI:  # stretch EU countries start here
+    tiles_1_and_2: 0.050
+    tile3: 0.016 
+  NO:
+    tiles_1_and_2: 0.050
+    tile3: 0.016 
+  PT:
+    tiles_1_and_2: 0.050
+    tile3: 0.016 
+  GR:
+    tiles_1_and_2: 0.050
+    tile3: 0.016  
+  CZ:
+    tiles_1_and_2: 0.050
+    tile3: 0.016 
+  HU:
+    tiles_1_and_2: 0.050
+    tile3: 0.016 
+  DK:
+    tiles_1_and_2: 0.050
+    tile3: 0.016 
+  TR:
+    tiles_1_and_2: 0.050
+    tile3: 0.016 
   KR: # Asia/Pacific stretch countries start here
     tiles_1_and_2: 0.050
     tile3: 0.016 
@@ -119,7 +143,7 @@ direct_allocations:
       - DE
       - GB
       - US
-    allocation: .98
+    allocation: 1
     start_month: 2025-01
 
 
@@ -184,6 +208,13 @@ elgibility:
                 AND country IN ("BE","AT","PL","NL","SE","CH")
               )
               OR
+              -- 2025 stretch EU
+              (
+                submission_date >= "2021-09-07"
+                AND version > 92
+                AND country IN ("FI","NO","PT","GR","CZ","HU","DK","TR")
+              )
+              OR
               -- 2025 stretch asia/pacific
                             (
                 submission_date >= "2021-09-07"
@@ -243,7 +274,63 @@ new_markets:
       - FR
       - GB
       - IT
-  KR:
+  FI:  # EU stretch starts here
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  NO:
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  PT:
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  GR:
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  CZ:
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  HU:
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  DK:
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  TR:
+    countries_to_use: 
+      - DE
+      - ES
+      - FR
+      - GB
+      - IT
+  KR:  # asia pacific stretch starts here
     countries_to_use:
       - JP
       - AU
