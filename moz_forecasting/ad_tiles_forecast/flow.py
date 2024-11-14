@@ -877,6 +877,7 @@ class AdTilesForecastFlow(FlowSpec):
             bigquery.SchemaField("device", "STRING"),
             bigquery.SchemaField("forecast_month", "DATETIME"),
             bigquery.SchemaField("forecast_predicted_at", "TIMESTAMP"),
+            bigquery.SchemaField("position", "STRING"),
             bigquery.SchemaField("impressions", "FLOAT"),
             bigquery.SchemaField("revenue", "FLOAT"),
             bigquery.SchemaField("CPM", "FLOAT"),
