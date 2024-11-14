@@ -66,17 +66,29 @@ def get_direct_allocation_df(
                 "direct_sales_allocations": [segment["allocation"]] * len(date_range),
             }
         )
-        for country in segment["markets"]:
-            df["country"] = country
-            direct_allocation_df_list.append(df.copy())
+        for position in segment["positions"]:
+            for country, cpm in segment["markets"].items():
+                df["country"] = country
+                df["cpm"] = cpm
+                df["position"] = position
+                direct_allocation_df_list.append(df.copy())
     direct_allocation_df = pd.concat(direct_allocation_df_list)
 
     # the same month/country combination can be present in multiple
     # direct allocation segments
-    # aggregate to get the sum
+    # aggregate to get the sum of the allocation
+    # for the cpm, get the average weighted by allocation
+    # this will give us the correct amount of revenue when multiplied by
+    # allocated impressions later
+    direct_allocation_df["cpm"] = (
+        direct_allocation_df["cpm"] * direct_allocation_df["direct_sales_allocations"]
+    )
     direct_allocation_df = direct_allocation_df.groupby(
-        ["submission_month", "country"], as_index=False
+        ["submission_month", "country", "position"], as_index=False
     ).sum()
+    direct_allocation_df["cpm"] = (
+        direct_allocation_df["cpm"] / direct_allocation_df["direct_sales_allocations"]
+    )
 
     # ensure that no month/country combination is more than 100% allocated
     all_allocated = direct_allocation_df[
