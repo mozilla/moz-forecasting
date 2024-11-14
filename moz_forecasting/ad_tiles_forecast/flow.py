@@ -743,13 +743,13 @@ class AdTilesForecastFlow(FlowSpec):
         by_country_cpm_list = []
         for country, cpms in CPMs.items():
             by_country_cpm_list.append(
-                {"country": country, "position": "1", "CPM": cpms["tiles_1_and_2"]}
+                {"country": country, "position": 1, "CPM": cpms["tiles_1_and_2"]}
             )
             by_country_cpm_list.append(
-                {"country": country, "position": "2", "CPM": cpms["tiles_1_and_2"]}
+                {"country": country, "position": 2, "CPM": cpms["tiles_1_and_2"]}
             )
             by_country_cpm_list.append(
-                {"country": country, "position": "3", "CPM": cpms["tile3"]}
+                {"country": country, "position": 3, "CPM": cpms["tile3"]}
             )
         self.by_country_cpm_df = pd.DataFrame(by_country_cpm_list)
 
@@ -821,7 +821,7 @@ class AdTilesForecastFlow(FlowSpec):
             value_name="revenue",
         )
 
-        revenue_df["position"] = revenue_df["position"].str.slice(start=-1)
+        revenue_df["position"] = revenue_df["position"].str.slice(start=-1).astype(int)
 
         impressions_df = self.output_df[
             [
@@ -843,17 +843,25 @@ class AdTilesForecastFlow(FlowSpec):
             value_name="impressions",
         )
 
-        impressions_df["position"] = impressions_df["position"].str.slice(start=-1)
+        impressions_df["position"] = (
+            impressions_df["position"].str.slice(start=-1).astype(int)
+        )
 
         write_df = impressions_df.merge(
             revenue_df, on=id_vars + ["position"], how="inner"
         )
         write_df["device"] = "desktop"
+        write_df["placement"] = "newtab"
+        write_df["product"] = "tile"
+        write_df["pricing_model"] = "impressions"
         write_df["forecast_month"] = self.first_day_of_current_month
+        write_df["clicks"] = None
         write_df = write_df.merge(self.forecast_predicted_at, how="inner", on="device")
         write_df = write_df.merge(
             self.by_country_cpm_df, on=["country", "position"], how="inner"
         )
+
+        write_df = write_df.rename(columns={"country": "country_code"})
 
         self.write_df = write_df
         if not self.write or "output" not in self.config_data:
@@ -871,14 +879,18 @@ class AdTilesForecastFlow(FlowSpec):
             f"{output_info['project']}.{output_info['database']}.{output_info['table']}"
         )
         schema = [
-            bigquery.SchemaField("country", "STRING"),
+            bigquery.SchemaField("country_code", "STRING"),
             bigquery.SchemaField("submission_month", "DATETIME"),
             bigquery.SchemaField("direct_sales_included", "BOOLEAN"),
             bigquery.SchemaField("device", "STRING"),
+            bigquery.SchemaField("placement", "STRING"),
+            bigquery.SchemaField("product", "STRING"),
+            bigquery.SchemaField("pricing_model", "STRING"),
             bigquery.SchemaField("forecast_month", "DATETIME"),
             bigquery.SchemaField("forecast_predicted_at", "TIMESTAMP"),
-            bigquery.SchemaField("position", "STRING"),
+            bigquery.SchemaField("position", "INTEGER"),
             bigquery.SchemaField("impressions", "FLOAT"),
+            bigquery.SchemaField("clicks", "FLOAT"),
             bigquery.SchemaField("revenue", "FLOAT"),
             bigquery.SchemaField("CPM", "FLOAT"),
         ]
