@@ -740,6 +740,19 @@ class AdTilesForecastFlow(FlowSpec):
             ]
         )
 
+        by_country_cpm_list = []
+        for country, cpms in CPMs.items():
+            by_country_cpm_list.append(
+                {"country": country, "position": "1", "CPM": cpms["tiles_1_and_2"]}
+            )
+            by_country_cpm_list.append(
+                {"country": country, "position": "2", "CPM": cpms["tiles_1_and_2"]}
+            )
+            by_country_cpm_list.append(
+                {"country": country, "position": "3", "CPM": cpms["tile3"]}
+            )
+        self.by_country_cpm_df = pd.DataFrame(by_country_cpm_list)
+
         revenue_forecast = pd.merge(self.revenue_forecast, CPM_df, on="country")
 
         # Desktop CPMs were increased by 10% in summer of 2024
@@ -791,37 +804,58 @@ class AdTilesForecastFlow(FlowSpec):
     @step
     def end(self):
         """Write to BQ."""
-        write_df = self.output_df
+        id_vars = ["country", "submission_month", "forecast_type"]
+        revenue_df = self.output_df[
+            [
+                "country",
+                "submission_month",
+                "forecast_type",
+                "revenue_tile1",
+                "revenue_tile2",
+                "revenue_tile3",
+            ]
+        ].melt(
+            id_vars=id_vars,
+            value_vars=["revenue_tile1", "revenue_tile2", "revenue_tile3"],
+            var_name="position",
+            value_name="revenue",
+        )
 
+        revenue_df["position"] = revenue_df["position"].str.slice(start=-1)
+
+        impressions_df = self.output_df[
+            [
+                "country",
+                "submission_month",
+                "forecast_type",
+                "expected_impressions_tile1",
+                "expected_impressions_tile2",
+                "expected_impressions_tile3",
+            ]
+        ].melt(
+            id_vars=id_vars,
+            value_vars=[
+                "expected_impressions_tile1",
+                "expected_impressions_tile2",
+                "expected_impressions_tile3",
+            ],
+            var_name="position",
+            value_name="impressions",
+        )
+
+        impressions_df["position"] = impressions_df["position"].str.slice(start=-1)
+
+        write_df = impressions_df.merge(
+            revenue_df, on=id_vars + ["position"], how="inner"
+        )
         write_df["device"] = "desktop"
         write_df["forecast_month"] = self.first_day_of_current_month
         write_df = write_df.merge(self.forecast_predicted_at, how="inner", on="device")
+        write_df = write_df.merge(
+            self.by_country_cpm_df, on=["country", "position"], how="inner"
+        )
 
-        write_df = write_df[
-            [
-                "forecast_month",
-                "forecast_predicted_at",
-                "country",
-                "submission_month",
-                "inventory_forecast",
-                "expected_impressions",
-                "revenue",
-                "device",
-                "forecast_type",
-            ]
-        ]
-
-        assert set(write_df.columns) == {
-            "forecast_month",
-            "forecast_predicted_at",
-            "country",
-            "submission_month",
-            "inventory_forecast",
-            "expected_impressions",
-            "revenue",
-            "device",
-            "forecast_type",
-        }
+        self.write_df = write_df
         if not self.write or "output" not in self.config_data:
             return
 
@@ -837,15 +871,15 @@ class AdTilesForecastFlow(FlowSpec):
             f"{output_info['project']}.{output_info['database']}.{output_info['table']}"
         )
         schema = [
-            bigquery.SchemaField("forecast_month", "DATETIME"),
-            bigquery.SchemaField("forecast_predicted_at", "TIMESTAMP"),
             bigquery.SchemaField("country", "STRING"),
             bigquery.SchemaField("submission_month", "DATETIME"),
-            bigquery.SchemaField("inventory_forecast", "FLOAT"),
-            bigquery.SchemaField("expected_impressions", "FLOAT"),
-            bigquery.SchemaField("revenue", "FLOAT"),
-            bigquery.SchemaField("device", "STRING"),
             bigquery.SchemaField("forecast_type", "STRING"),
+            bigquery.SchemaField("device", "STRING"),
+            bigquery.SchemaField("forecast_month", "DATETIME"),
+            bigquery.SchemaField("forecast_predicted_at", "TIMESTAMP"),
+            bigquery.SchemaField("impressions", "FLOAT"),
+            bigquery.SchemaField("revenue", "FLOAT"),
+            bigquery.SchemaField("CPM", "FLOAT"),
         ]
         job_config = bigquery.LoadJobConfig(
             write_disposition="WRITE_APPEND", schema=schema
