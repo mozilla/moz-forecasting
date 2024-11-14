@@ -836,10 +836,20 @@ class AdTilesForecastFlow(FlowSpec):
         target_table = (
             f"{output_info['project']}.{output_info['database']}.{output_info['table']}"
         )
-        job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-        job_config.schema_update_options = [
-            bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION
+        schema = [
+            bigquery.SchemaField("forecast_month", "DATETIME"),
+            bigquery.SchemaField("forecast_predicted_at", "TIMESTAMP"),
+            bigquery.SchemaField("country", "STRING"),
+            bigquery.SchemaField("submission_month", "DATETIME"),
+            bigquery.SchemaField("inventory_forecast", "FLOAT"),
+            bigquery.SchemaField("expected_impressions", "FLOAT"),
+            bigquery.SchemaField("revenue", "FLOAT"),
+            bigquery.SchemaField("device", "STRING"),
+            bigquery.SchemaField("forecast_type", "STRING"),
         ]
+        job_config = bigquery.LoadJobConfig(
+            write_disposition="WRITE_APPEND", schema=schema
+        )
 
         client = bigquery.Client(project=GCP_PROJECT_NAME)
 

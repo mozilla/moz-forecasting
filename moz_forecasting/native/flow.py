@@ -29,14 +29,6 @@ class NativeForecastFlow(FlowSpec):
         default="moz_forecasting/native/config.yaml",
     )
 
-    test_mode = Parameter(
-        name="test_mode",
-        help="indicates whether or not run should affect production",
-        default=True,
-    )
-
-    write = Parameter(name="write", help="whether or not to write to BQ", default=False)
-
     set_forecast_start_month = Parameter(
         name="forecast_start_month",
         help="indicate historical month to set forecast date to in %Y-%m format",
@@ -396,28 +388,7 @@ class NativeForecastFlow(FlowSpec):
             "spoc_inventory_forecast",
             "device",
         }
-        if self.write:
-            return
-
-        if self.test_mode and GCP_PROJECT_NAME != "moz-fx-mfouterbounds-prod-f98d":
-            # case where testing locally
-            output_info = self.config_data["output"]["test"]
-        elif self.test_mode and GCP_PROJECT_NAME == "moz-fx-mfouterbounds-prod-f98d":
-            # case where testing in outerbounds, just want to exit
-            return
-        else:
-            output_info = self.config_data["output"]["prod"]
-        target_table = (
-            f"{output_info['project']}.{output_info['database']}.{output_info['table']}"
-        )
-        job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-        job_config.schema_update_options = [
-            bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION
-        ]
-
-        client = bigquery.Client(project=GCP_PROJECT_NAME)
-
-        client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
+        self.write_df = write_df
 
 
 if __name__ == "__main__":

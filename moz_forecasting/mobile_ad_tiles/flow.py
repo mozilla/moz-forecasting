@@ -29,14 +29,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
         default="moz_forecasting/mobile_ad_tiles/config.yaml",
     )
 
-    test_mode = Parameter(
-        name="test_mode",
-        help="indicates whether or not run should affect production",
-        default=True,
-    )
-
-    write = Parameter(name="write", help="whether or not to write to BQ", default=False)
-
     set_forecast_month = Parameter(
         name="forecast_month",
         help="indicate historical month to set forecast date to in %Y-%m format",
@@ -77,6 +69,9 @@ class MobileAdTilesForecastFlow(FlowSpec):
         )
         self.active_users_aggregates_table = (
             "moz-fx-data-shared-prod.telemetry.active_users_aggregates"
+        )
+        self.event_aggregates_table_sponsored = (
+            "moz-fx-data-shared-prod.contextual_services.event_aggregates_spons_tiles"
         )
         self.event_aggregates_table = (
             "moz-fx-data-shared-prod.contextual_services.event_aggregates"
@@ -384,10 +379,44 @@ class MobileAdTilesForecastFlow(FlowSpec):
         excluded_advertisers_string = ",".join(
             f"'{el}'" for el in self.excluded_advertisers
         )
-        query = f"""SELECT
+        clicks_query = f"""SELECT
                         (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
                         country,
-                        event_type,
+                        COALESCE(SUM(
+                            IF(advertiser = "amazon",
+                                click_count,
+                                0)),
+                            0) AS amazon_clicks,
+                        COALESCE(SUM(
+                            IF(advertiser NOT IN ("amazon",
+                                                    {excluded_advertisers_string}),
+                                click_count,
+                                0)),
+                            0) AS other_clicks
+                    FROM
+                        {self.event_aggregates_table_sponsored}
+                    WHERE
+                        submission_date >= "{forecast_start}"
+                        AND form_factor = "phone"
+                        AND country IN ({countries_string})
+                    GROUP BY
+                        submission_month,
+                        country"""
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
+        click_query_job = client.query(clicks_query)
+        click_data = click_query_job.to_dataframe()
+        clicks = click_data[
+            [
+                "submission_month",
+                "country",
+                "amazon_clicks",
+                "other_clicks",
+            ]
+        ]
+
+        client_fraction_query = f"""SELECT
+                        (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
+                        country,
                         COALESCE(SUM(IF(advertiser = "amazon",
                                             user_count,
                                             0))/SUM(user_count)) AS p_amazon,
@@ -396,49 +425,22 @@ class MobileAdTilesForecastFlow(FlowSpec):
                                                         {excluded_advertisers_string}),
                                             user_count,
                                             0))/SUM(user_count)) AS p_other,
-                        COALESCE(SUM(
-                            IF(advertiser = "amazon",
-                                event_count,
-                                0)),
-                            0) AS amazon_interaction_count,
-                        COALESCE(SUM(
-                            IF(advertiser NOT IN ("amazon",
-                                                    {excluded_advertisers_string}),
-                                event_count,
-                                0)),
-                            0) AS other_interaction_count
                     FROM
                         {self.event_aggregates_table}
                     WHERE
                         submission_date >= "{forecast_start}"
                         AND form_factor = "phone"
-                        AND event_type in ("impression", "click")
+                        AND event_type = "impression"
                         AND source = "topsites"
                         AND country IN ({countries_string})
                     GROUP BY
                         submission_month,
-                        country,
-                        event_type"""
+                        country"""
         client = bigquery.Client(project=GCP_PROJECT_NAME)
-        query_job = client.query(query)
-        tile_data = query_job.to_dataframe()
-        clicks = tile_data.loc[
-            tile_data["event_type"] == "click",
-            [
-                "submission_month",
-                "country",
-                "amazon_interaction_count",
-                "other_interaction_count",
-            ],
-        ].rename(
-            columns={
-                "amazon_interaction_count": "amazon_clicks",
-                "other_interaction_count": "other_clicks",
-            }
-        )
-        inventory = tile_data.loc[
-            tile_data["event_type"] == "impression",
-            ["submission_month", "country", "p_amazon", "p_other"],
+        client_fraction_job = client.query(client_fraction_query)
+        client_fraction_data = client_fraction_job.to_dataframe()
+        inventory = client_fraction_data[
+            ["submission_month", "country", "p_amazon", "p_other"]
         ]
 
         self.events_data = clicks.merge(inventory, on=["submission_month", "country"])
@@ -643,27 +645,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
             "total_revenue",
         ]
 
-        write_df = self.rev_forecast_dat[output_columns]
-
-        if not self.write:
-            return
-
-        if self.test_mode and GCP_PROJECT_NAME != "moz-fx-mfouterbounds-prod-f98d":
-            # case where testing locally
-            output_info = self.config_data["output"]["test"]
-        elif self.test_mode and GCP_PROJECT_NAME == "moz-fx-mfouterbounds-prod-f98d":
-            # case where testing in outerbounds, just want to exit
-            return
-        else:
-            output_info = self.config_data["output"]["prod"]
-
-        target_table = (
-            f"{output_info['project']}.{output_info['database']}.{output_info['table']}"
-        )
-        job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
-        client = bigquery.Client(project=GCP_PROJECT_NAME)
-
-        client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
+        self.write_df = self.rev_forecast_dat[output_columns]
 
 
 if __name__ == "__main__":

@@ -17,18 +17,6 @@ eligibility:
         RETURNS BOOL
         AS (True) ;
 
-# specify the output database and table
-# to write the data to
-output:
-  test:
-    project: moz-fx-data-bq-data-science
-    database: jsnyder
-    table: native_forecast
-  prod:
-    project: mozdata
-    database: revenue_cat3_analysis
-    table: native_forecast
-
 # countries to run the forecast on
 countries:
   - DE
