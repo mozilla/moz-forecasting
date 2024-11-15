@@ -449,10 +449,6 @@ class AdTilesForecastFlow(FlowSpec):
                                 country,
                                 (FORMAT_DATE('%Y-%m', submission_date ))
                                     AS submission_month,
-                                SUM(IF(position <= 2, impression_count, 0))
-                                    AS sponsored_impressions_1and2,
-                                SUM(IF(position <=3, impression_count, 0))
-                                     AS sponsored_impressions_all,
                                 SUM(IF(position = 1, impression_count, 0))
                                     AS sponsored_impressions_1,
                                  SUM(IF(position = 2, impression_count, 0))
@@ -518,39 +514,16 @@ class AdTilesForecastFlow(FlowSpec):
             self.newtab_visits, on=["submission_month", "country"], how="inner"
         )
 
-        impressions_with_newtab["fill_rate"] = (
-            impressions_with_newtab.sponsored_impressions_1and2
-            / impressions_with_newtab.newtab_visits
-        )
-
-        impressions_with_newtab["fill_rate_all_tiles"] = (
-            impressions_with_newtab.sponsored_impressions_all
-            / impressions_with_newtab.newtab_visits
-        )
-
-        impressions_with_newtab["fill_rate_tile1"] = (
-            impressions_with_newtab.sponsored_impressions_1
-            / impressions_with_newtab.newtab_visits
-        )
-
-        impressions_with_newtab["fill_rate_tile2"] = (
-            impressions_with_newtab.sponsored_impressions_2
-            / impressions_with_newtab.newtab_visits
-        )
-
-        impressions_with_newtab["fill_rate_tile3"] = (
-            impressions_with_newtab.sponsored_impressions_3
-            / impressions_with_newtab.newtab_visits
-        )
+        fill_rate_columns = []
+        for position in ["1", "2", "3"]:
+            impressions_with_newtab[f"fill_rate_tile{position}"] = (
+                impressions_with_newtab[f"sponsored_impressions_{position}"]
+                / impressions_with_newtab.newtab_visits
+            )
+            fill_rate_columns.append(f"fill_rate_tile{position}")
 
         self.fill_rate = impressions_with_newtab
-        self.fill_rate_columns = [
-            "fill_rate",
-            "fill_rate_all_tiles",
-            "fill_rate_tile1",
-            "fill_rate_tile2",
-            "fill_rate_tile3",
-        ]
+        self.fill_rate_columns = fill_rate_columns
 
         # impute fill rate for countries specified in config
         if "new_markets" in self.config_data:
@@ -790,12 +763,6 @@ class AdTilesForecastFlow(FlowSpec):
                 df["direct_sales_included"] = forecast_type
 
         revenue_forecast = pd.concat([no_direct_sales_df, direct_sales_df])
-
-        # overwrite revenue_all_tiles to account for different CPM rates
-        individual_tile_columns = ["revenue_tile1", "revenue_tile2", "revenue_tile3"]
-        revenue_forecast["revenue_all_tiles"] = revenue_forecast[
-            individual_tile_columns
-        ].sum(axis=1)
 
         self.output_df = revenue_forecast
 
