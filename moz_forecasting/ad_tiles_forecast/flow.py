@@ -69,7 +69,7 @@ def get_direct_allocation_df(
         for position in segment["positions"]:
             for country, cpm in segment["markets"].items():
                 df["country"] = country
-                df["cpm"] = cpm
+                df["CPM"] = cpm
                 df["position"] = position
                 direct_allocation_df_list.append(df.copy())
     direct_allocation_df = pd.concat(direct_allocation_df_list)
@@ -80,14 +80,14 @@ def get_direct_allocation_df(
     # for the cpm, get the average weighted by allocation
     # this will give us the correct amount of revenue when multiplied by
     # allocated impressions later
-    direct_allocation_df["cpm"] = (
-        direct_allocation_df["cpm"] * direct_allocation_df["direct_sales_allocations"]
+    direct_allocation_df["CPM"] = (
+        direct_allocation_df["CPM"] * direct_allocation_df["direct_sales_allocations"]
     )
     direct_allocation_df = direct_allocation_df.groupby(
         ["submission_month", "country", "position"], as_index=False
     ).sum()
-    direct_allocation_df["cpm"] = (
-        direct_allocation_df["cpm"] / direct_allocation_df["direct_sales_allocations"]
+    direct_allocation_df["CPM"] = (
+        direct_allocation_df["CPM"] / direct_allocation_df["direct_sales_allocations"]
     )
 
     # ensure that no month/country combination is more than 100% allocated
@@ -707,31 +707,33 @@ class AdTilesForecastFlow(FlowSpec):
         """Add columns related to direct sales.
 
         Following columns are added:
-            direct_sales_markets: indicates whether country/month has direct sales
-                "y" for yes and "n" for no
-            direct_sales_allocations: The fraction of impressions allocated AMP
-            expected_impressions_direct_sales: Number of impressions allocated to AMP
+            direct_sales_allocations: The fraction of impressions allocated direct sales
+            expected_impressions_direct_sales: Number of impressions allocated to direct sales
         """
-        direct_allocation_df = get_direct_allocation_df(
-            self.config_data["direct_allocations"],
-            min_month=self.revenue_forecast["submission_month"].min(),
-            max_month=self.revenue_forecast["submission_month"].max(),
-        )
-        self.revenue_forecast = self.revenue_forecast.merge(
-            direct_allocation_df,
-            on=["submission_month", "country"],
-            how="left",
-        )
+        if "direct_allocations" in self.config_data:
+            direct_allocation_df = get_direct_allocation_df(
+                self.config_data["direct_allocations"],
+                min_month=self.revenue_forecast["submission_month"].min(),
+                max_month=self.revenue_forecast["submission_month"].max(),
+            )
+            amp_forecast = self.revenue_forecast.merge(
+                direct_allocation_df[
+                    ["submission_month", "country", "direct_sales_allocations"]
+                ],
+                on=["submission_month", "country"],
+                how="left",
+            )
 
-        self.revenue_forecast["direct_sales_markets"] = "n"
-        self.revenue_forecast.loc[
-            self.revenue_forecast["direct_sales_allocations"] > 0.0,
-            "direct_sales_markets",
-        ] = "y"
-
-        self.revenue_forecast["direct_sales_allocations"] = self.revenue_forecast[
-            "direct_sales_allocations"
-        ].fillna(1.0)
+            amp_forecast["direct_sales_allocations"] = amp_forecast[
+                "direct_sales_allocations"
+            ].fillna(0)
+        else:
+            # no direct sales allocations
+            amp_forecast = self.revenue_forecast
+            amp_forecast["direct_sales_allocations"] = 0
+            direct_allocation_df = pd.DataFrame()
+        self.amp_forecast = amp_forecast
+        self.direct_allocation_df = direct_allocation_df
 
         self.next(self.forecast_revenue)
 
@@ -752,7 +754,7 @@ class AdTilesForecastFlow(FlowSpec):
             ]
         )
 
-        revenue_forecast = pd.merge(self.revenue_forecast, CPM_df, on="country")
+        revenue_forecast = pd.merge(self.amp_forecast, CPM_df, on="country")
 
         # Desktop CPMs were increased by 10% in summer of 2024
         # with an effective date of 2024-09-30
@@ -767,28 +769,48 @@ class AdTilesForecastFlow(FlowSpec):
         # and concat
 
         # multiply inventory by CPMs
-        no_direct_sales_df = revenue_forecast.copy()
-        direct_sales_df = revenue_forecast.copy()
+        remove_direct_sales_df = revenue_forecast.copy()
+        ignore_direct_sales_df = revenue_forecast.copy()
         for impression_col in self.expected_impression_columns:
-            for forecast_type, df in {
-                "with_direct_sales": no_direct_sales_df,
-                "no_direct_sales": direct_sales_df,
-            }.items():
-                impressions_direct_sales_col = impression_col + "_direct_sales"
-                df[impressions_direct_sales_col] = (
-                    self.revenue_forecast[impression_col]
-                    * self.revenue_forecast["direct_sales_allocations"]
+            # remove direct sales in appropriate df
+            remove_direct_sales_df[impression_col] = (
+                remove_direct_sales_df[impression_col]
+                * (
+                    1 - remove_direct_sales_df["direct_sales_allocations"]
+                )  # allocated to AMP
+            )
+            revenue_col = impression_col.replace("expected_impressions", "revenue")
+            if revenue_col[-5:] == "tile3":
+                # corresponds to third tile, use tile3 CPM
+                remove_direct_sales_df[revenue_col] = (
+                    remove_direct_sales_df[impression_col]
+                    * remove_direct_sales_df["CPM_3"]
+                    / 1000
                 )
-                revenue_col = impression_col.replace("expected_impressions", "revenue")
-                if revenue_col[-5:] == "tile3":
-                    # corresponds to third tile, use tile3 CPM
-                    df[revenue_col] = df[impression_col] * df["CPM_3"] / 1000
-                else:
-                    # all others apply tiles 1 and 2 CPM
-                    df[revenue_col] = df[impression_col] * df["CPM"] / 1000
-                df["forecast_type"] = forecast_type
+                ignore_direct_sales_df[revenue_col] = (
+                    ignore_direct_sales_df[impression_col]
+                    * ignore_direct_sales_df["CPM_3"]
+                    / 1000
+                )
+            else:
+                # all others apply tiles 1 and 2 CPM
+                remove_direct_sales_df[revenue_col] = (
+                    remove_direct_sales_df[impression_col]
+                    * remove_direct_sales_df["CPM"]
+                    / 1000
+                )
+                ignore_direct_sales_df[revenue_col] = (
+                    ignore_direct_sales_df[impression_col]
+                    * ignore_direct_sales_df["CPM"]
+                    / 1000
+                )
 
-        revenue_forecast = pd.concat([no_direct_sales_df, direct_sales_df])
+        ignore_direct_sales_df["forecast_type"] = "no_direct_sales"
+        remove_direct_sales_df["forecast_type"] = "with_direct_sales"
+
+        # ignoring direct sales
+
+        revenue_forecast = pd.concat([ignore_direct_sales_df, remove_direct_sales_df])
 
         # overwrite revenue_all_tiles to account for different CPM rates
         individual_tile_columns = ["revenue_tile1", "revenue_tile2", "revenue_tile3"]
