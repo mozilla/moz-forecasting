@@ -3,7 +3,7 @@ observed_months: 12
 observed_months_fill_rate: 4
 
 # Revenue per Mille, agreed contractually with Admarketplace.
-RPM:
+CPM:
   AU: 
     tiles_1_and_2: 0.099
     tile3: .077
@@ -58,36 +58,6 @@ RPM:
   CH: 
     tiles_1_and_2: 0.050
     tile3: 0.016 #switzerland
-
-# list of direct allocation time windows
-# each element in the list is a timeframe
-# for the countries specified in markets 
-# for which the fraction in allocation is sent
-# to Ad Marketplace.  start_month and end_month
-# specify the start and end of the time window inclusively
-# Both are optional, and the earliest and latest values
-# in the data are used to replace them respectively if left out
-direct_allocations:
-  - markets:
-      - DE
-      - GB
-      - US
-    allocation: .95
-    start_month: 2023-10
-    end_month: 2023-12
-  - markets:
-      - DE
-      - GB
-      - US
-    allocation: .95
-    start_month: 2024-01
-    end_month: 2024-12
-  - markets:
-      - DE
-      - GB
-      - US
-    allocation: 1
-    start_month: 2025-01
 
 
 # elgilibity rules for different product/platform combos

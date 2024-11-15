@@ -51,25 +51,16 @@ CPM:
 # in the data are used to replace them respectively if left out
 direct_allocations:
   - markets:
-      - DE
-      - GB
-      - US
-    allocation: .95
-    start_month: 2023-10
-    end_month: 2023-12
-  - markets:
-      - DE
-      - GB
-      - US
-    allocation: .95
-    start_month: 2024-01
-    end_month: 2025-01
-  - markets:
-      - DE
-      - GB
-      - US
-    allocation: .9
+      DE: 1.00
+      GB: 1.00
+      US: 1.00
+      FR: 1.00
+      IT: 1.00
+      ES: 1.00
+    allocation: .05
     start_month: 2025-02
+    positions:
+      - 3
 
 
 # elgilibity rules for different product/platform combos
