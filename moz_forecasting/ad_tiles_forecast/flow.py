@@ -109,7 +109,7 @@ class AdTilesForecastFlow(FlowSpec):
         name="config",
         is_text=True,
         help="configuration for flow",
-        default="moz_forecasting/ad_tiles_forecast/config.yaml",
+        default="moz_forecasting/ad_tiles_forecast/config_2025_planning_baseline.yaml",
     )
 
     test_mode = Parameter(
@@ -764,6 +764,7 @@ class AdTilesForecastFlow(FlowSpec):
         remove_direct_sales_df = revenue_forecast.copy()
         ignore_direct_sales_df = revenue_forecast.copy()
         for impression_col in self.expected_impression_columns:
+<<<<<<< HEAD
             # remove direct sales in appropriate df
             remove_direct_sales_df[impression_col] = (
                 remove_direct_sales_df[impression_col]
@@ -796,14 +797,36 @@ class AdTilesForecastFlow(FlowSpec):
                     * ignore_direct_sales_df["CPM"]
                     / 1000
                 )
+=======
+            for forecast_type, df in {
+                False: no_direct_sales_df,
+                True: direct_sales_df,
+            }.items():
+                impressions_direct_sales_col = impression_col + "_direct_sales"
+                df[impressions_direct_sales_col] = (
+                    self.revenue_forecast[impression_col]
+                    * self.revenue_forecast["direct_sales_allocations"]
+                )
+                revenue_col = impression_col.replace("expected_impressions", "revenue")
+                if revenue_col[-5:] == "tile3":
+                    # corresponds to third tile, use tile3 CPM
+                    df[revenue_col] = df[impression_col] * df["CPM_3"] / 1000
+                else:
+                    # all others apply tiles 1 and 2 CPM
+                    df[revenue_col] = df[impression_col] * df["CPM"] / 1000
+                df["direct_sales_included"] = forecast_type
+>>>>>>> origin/main
 
         ignore_direct_sales_df["forecast_type"] = "no_direct_sales"
         remove_direct_sales_df["forecast_type"] = "with_direct_sales"
 
+<<<<<<< HEAD
         # ignoring direct sales
 
         revenue_forecast = pd.concat([ignore_direct_sales_df, remove_direct_sales_df])
 
+=======
+>>>>>>> origin/main
         self.output_df = revenue_forecast
 
         self.next(self.end)
@@ -902,10 +925,13 @@ class AdTilesForecastFlow(FlowSpec):
             bigquery.SchemaField("CPM", "FLOAT"),
         ]
         job_config = bigquery.LoadJobConfig(
-            write_disposition="WRITE_APPEND", schema=schema
+            write_disposition="WRITE_APPEND",
+            create_disposition="CREATE_NEVER",
+            schema=schema,
         )
 
         client = bigquery.Client(project=GCP_PROJECT_NAME)
+        print(f"writing to: {target_table}")
 
         client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
 
