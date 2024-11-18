@@ -137,6 +137,6 @@ output:
     database: jsnyder
     table: amp_rpm_forecasts
   prod:
-    project: mozdata
-    database: revenue_cat3_analysis
-    table: amp_rpm_forecasts
+    project: moz-fx-data-shared-prod
+    database: ads_derived
+    table: tiles_monthly_v1

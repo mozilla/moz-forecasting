@@ -199,5 +199,14 @@ new_markets:
       - GB
       - IT
 
-# no output info because we don't want to write
-
+# specify the output database and table
+# to write the data to
+output:
+  test:
+    project: moz-fx-data-bq-data-science
+    database: jsnyder
+    table: tiles_monthly
+  prod:
+    project: moz-fx-data-shared-prod
+    database: ads_derived
+    table: tiles_monthly_v1

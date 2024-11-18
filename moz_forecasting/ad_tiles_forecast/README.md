@@ -23,5 +23,27 @@ The idea behind the inventory forecast is to execute the following steps:
 3. **turn country-level DAU into country-level tile impressions by multiplying by scalar fill rate**: The fill rate is calculated from tile impressions and newtab impressions obtained from the table `moz-fx-data-shared-prod.contextual_services.event_aggregates_spons_tiles` and stored in `self.impressions`.  The quotient of tile impressions and newtab impressions is taken, imputed for new geos, and averaged by country to obtain scalar values that are stored in `self.fill_rate_by_country`
 4. **turn county-level impressions into revenue by multiplying by CPM/1000**:  The CPMs are derived from config. Note that first two tiles have a different CPM than the third tile.  The CPMs are applied to the tile impressions and stored in `self.output_df` in the penultimate step.
 
+## Output
+The table currently writes to `moz-fx-data-shared-prod.ads_derived.tiles_monthly_v1`.  Only the Outerbounds service account `task-revenue@moz-fx-mfouterbounds-prod-f98d.iam.gserviceaccount.com` has permission to write, so it must be done there (see above on how to run in outerbounds).  This table is also used in the view which writes to `moz-fx-data-shared-prod.ads.tiles_monthly`.  The structure of the data is meant to match that of the AMP actuals data in `moz-fx-data-shared-prod.revenue.admarketplace`, making it easy to join the two sources.
+
+Each row of thet table represents a specific tile position (indicated by `position`) for a specific product (Indicated by the value in the `product` column, IE `tiles` for desktop tiles allocated to AMP, `mobile tiles` for mobile tiles allocated to AMP, etc) on a specific month (indicated by `submission_month`) for a specific country (indicated by the `country code` column) for a specific forecast (indicated by the `forecast_month` column).  
+
+The meanings of each column are as follows:
+   - `position` (INTEGER): Tile position
+   - `product` (STRING): indicates which "product" the row is associated with.  Currently only `tiles`, representing desktop tiles allocated to AMP, is supported
+   - `submission_month` (DATETIME): monthy associated with the forecast.  Will always be the first day in the month.
+   - `country_code` (STRING): two-letter country code
+   - `forecast_month` (DATETIME):  Month that the forecast was generated
+   - `direct_sales_included` (BOOLEAN): Indicates whether the allocation to direct sales is subtracted (True) or ignored (False)
+   - `impressions` (FLOAT):  Predicted number of impressions, can be null when the pricing model is clicks
+   - `clicks` (FLOAT):  Predicted number of clicks, can be null when the pricing model is impressions
+   - `revenue` (FLOAT): Predicted revenue
+   - `CPM` (FLOAT): rate used to calculate revenue
+   - `device` (STRING):  indicates whether the forecast is for desktop or mobile.  Note this information is also captured in the `product` columne
+   - `placement` (STRING):  placement of the ad, currently only `newtab`
+   - `pricing_model` (STRING): Indicates whether clicks or impressions are used in the pricing model
+   - `forecast_predicted_at` (TIMESTAMP):  Indentifies the DAU forecast used for this forecast
+
 ## History and Changes
 This pipeline was derived from [this notebook](https://colab.research.google.com/drive/1qOsjCY8G6mM91FU3ZiOfsSZJRi5CpLOj).  The only major change is that the invenetory is now obtained from a derived table rather than from looker, the latter method is described in the notebook.  Other non-functional changes were made for readability and efficiancy.  The outputs of the flow were validated against the notebook outputs to be accurate to within 3%.
+
