@@ -207,6 +207,6 @@ output:
     database: jsnyder
     table: tiles_monthly
   prod:
-    project: mozdata
-    database: revenue_cat3_analysis
-    table: tiles_monthly
+    project: moz-fx-data-shared-prod
+    database: ads_derived
+    table: tiles_monthly_v1

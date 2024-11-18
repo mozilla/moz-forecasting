@@ -97,7 +97,7 @@ class AdTilesForecastFlow(FlowSpec):
         name="config",
         is_text=True,
         help="configuration for flow",
-        default="moz_forecasting/ad_tiles_forecast/config.yaml",
+        default="moz_forecasting/ad_tiles_forecast/config_2025_planning_baseline.yaml",
     )
 
     test_mode = Parameter(
@@ -862,10 +862,13 @@ class AdTilesForecastFlow(FlowSpec):
             bigquery.SchemaField("CPM", "FLOAT"),
         ]
         job_config = bigquery.LoadJobConfig(
-            write_disposition="WRITE_APPEND", schema=schema
+            write_disposition="WRITE_APPEND",
+            create_disposition="CREATE_NEVER",
+            schema=schema,
         )
 
         client = bigquery.Client(project=GCP_PROJECT_NAME)
+        print(f"writing to: {target_table}")
 
         client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
 
