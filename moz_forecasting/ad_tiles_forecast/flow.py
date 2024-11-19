@@ -69,7 +69,7 @@ def get_direct_allocation_df(
         for position in segment["positions"]:
             for country, cpm in segment["markets"].items():
                 df["country"] = country
-                df["CPM"] = cpm
+                df["direct_sales_CPM"] = cpm
                 df["position"] = position
                 direct_allocation_df_list.append(df.copy())
     direct_allocation_df = pd.concat(direct_allocation_df_list)
@@ -80,14 +80,16 @@ def get_direct_allocation_df(
     # for the cpm, get the average weighted by allocation
     # this will give us the correct amount of revenue when multiplied by
     # allocated impressions later
-    direct_allocation_df["CPM"] = (
-        direct_allocation_df["CPM"] * direct_allocation_df["direct_sales_allocations"]
+    direct_allocation_df["direct_sales_CPM"] = (
+        direct_allocation_df["direct_sales_CPM"]
+        * direct_allocation_df["direct_sales_allocations"]
     )
     direct_allocation_df = direct_allocation_df.groupby(
         ["submission_month", "country", "position"], as_index=False
     ).sum()
-    direct_allocation_df["CPM"] = (
-        direct_allocation_df["CPM"] / direct_allocation_df["direct_sales_allocations"]
+    direct_allocation_df["direct_sales_CPM"] = (
+        direct_allocation_df["direct_sales_CPM"]
+        / direct_allocation_df["direct_sales_allocations"]
     )
 
     # ensure that no month/country combination is more than 100% allocated
@@ -678,6 +680,7 @@ class AdTilesForecastFlow(FlowSpec):
                         "country",
                         "position",
                         "direct_sales_allocations",
+                        "direct_sales_CPM",
                     ]
                 ],
                 on=["submission_month", "country", "position"],
@@ -691,6 +694,7 @@ class AdTilesForecastFlow(FlowSpec):
             # no direct sales allocations
             amp_forecast = self.revenue_forecast
             amp_forecast["direct_sales_allocations"] = 0
+            amp_forecast["direct_sales_CPM"] = 0
             direct_allocation_df = pd.DataFrame()
         self.amp_forecast = amp_forecast
         self.direct_allocation_df = direct_allocation_df
@@ -721,7 +725,9 @@ class AdTilesForecastFlow(FlowSpec):
         self.by_country_cpm_df = pd.DataFrame(by_country_cpm_list)
 
         revenue_forecast = pd.merge(
-            self.amp_forecast, self.by_country_cpm_df, on=["country", "position"]
+            self.amp_forecast,
+            self.by_country_cpm_df,
+            on=["country", "position"],
         )
 
         # Desktop CPMs were increased by 10% in summer of 2024
@@ -760,7 +766,7 @@ class AdTilesForecastFlow(FlowSpec):
             ignore_direct_sales_df["impressions"] * ignore_direct_sales_df["CPM"] / 1000
         )
         direct_sales_df["revenue"] = (
-            direct_sales_df["impressions"] * direct_sales_df["CPM"] / 1000
+            direct_sales_df["impressions"] * direct_sales_df["direct_sales_CPM"] / 1000
         )
 
         ignore_direct_sales_df["forecast_type"] = "no_direct_sales"
@@ -774,6 +780,7 @@ class AdTilesForecastFlow(FlowSpec):
         direct_sales_df["forecast_type"] = "direct_sales"
         direct_sales_df["direct_sales_included"] = True
         direct_sales_df["product"] = "tile direct sales"
+        direct_sales_df["CPM"] = direct_sales_df["direct_sales_CPM"]
 
         # ignoring direct sales
 
