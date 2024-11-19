@@ -805,6 +805,25 @@ class AdTilesForecastFlow(FlowSpec):
 
         write_df = write_df.rename(columns={"country": "country_code"})
 
+        write_df = write_df[
+            [
+                "country_code",
+                "submission_month",
+                "direct_sales_included",
+                "device",
+                "placement",
+                "product",
+                "pricing_model",
+                "forecast_month",
+                "forecast_predicted_at",
+                "position",
+                "impressions",
+                "clicks",
+                "revenue",
+                "CPM",
+            ]
+        ]
+
         self.write_df = write_df
         if not self.write or "output" not in self.config_data:
             return
