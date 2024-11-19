@@ -35,11 +35,13 @@ Each row of thet table represents a specific tile position (indicated by `positi
 
 The meanings of each column are as follows:
    - `position` (INTEGER): Tile position
-   - `product` (STRING): indicates which "product" the row is associated with.  Currently only `tiles`, representing desktop tiles allocated to AMP, is supported
+   - `product` (STRING): indicates which "product" the row is associated with.  Current possible values:
+     -  `tile`, representing desktop tiles allocated to AMP.  Includes both scenarios where direct sales is ignored (`direct_sales_included` is false) and case where direct sales allocation is subtracted out (`direct_sales_included` is True)
+     -  `tile direct sales` :  Impressions and revenue for direct sales
    - `submission_month` (DATETIME): monthy associated with the forecast.  Will always be the first day in the month.
    - `country_code` (STRING): two-letter country code
    - `forecast_month` (DATETIME):  Month that the forecast was generated
-   - `direct_sales_included` (BOOLEAN): Indicates whether the allocation to direct sales is subtracted (True) or ignored (False)
+   - `direct_sales_included` (BOOLEAN): Indicates whether the allocation to direct sales is subtracted (True) or ignored (False).  Note that it is True when `product` is `tile direct sales`
    - `impressions` (FLOAT):  Predicted number of impressions, can be null when the pricing model is clicks
    - `clicks` (FLOAT):  Predicted number of clicks, can be null when the pricing model is impressions
    - `revenue` (FLOAT): Predicted revenue
