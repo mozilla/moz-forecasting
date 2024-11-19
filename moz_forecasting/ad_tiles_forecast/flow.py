@@ -509,68 +509,6 @@ class AdTilesForecastFlow(FlowSpec):
             newtab_visits["submission_month"]
         )
         self.newtab_visits = newtab_visits
-        self.next(self.get_fill_rate)
-
-    @step
-    def get_fill_rate(self):
-        """Get fill rate.
-
-        Creates fill_rate and sponsored_impressions columns.
-        Imputes countries specified in config
-        """
-        # join on newtab vists and calculate fill rates
-        impressions_with_newtab = self.impressions.merge(
-            self.newtab_visits, on=["submission_month", "country"], how="inner"
-        )
-
-        impressions_with_newtab["fill_rate"] = (
-            impressions_with_newtab["sponsored_impressions"]
-            / impressions_with_newtab.newtab_visits
-        )
-
-        self.fill_rate = impressions_with_newtab
-
-        # impute fill rate for countries specified in config
-        if "new_markets" in self.config_data:
-            fill_rate_columns = ["submission_month", "country", "fill_rate", "position"]
-            imputation_data = self.config_data["new_markets"]
-            fill_rate_raw_no_imputation = impressions_with_newtab.loc[
-                ~impressions_with_newtab.country.isin(imputation_data),
-                fill_rate_columns,
-            ]
-            imputed_data_list = [fill_rate_raw_no_imputation]
-            # iterate through countries to impute
-            for country, imputation_info in imputation_data.items():
-                impute_with = impressions_with_newtab.loc[
-                    impressions_with_newtab.country.isin(
-                        imputation_info["countries_to_use"]
-                    ),
-                    fill_rate_columns,
-                ]
-                impute_grouped = (
-                    impute_with.drop(columns=["country"])
-                    .groupby(["submission_month", "position"], as_index=False)
-                    .mean()
-                )
-                impute_grouped["country"] = country
-                imputed_data_list.append(impute_grouped)
-            fill_rate_with_imputation = pd.concat(imputed_data_list)
-            self.fill_rate = fill_rate_with_imputation
-
-        fill_rate_lookback_months = self.config_data["observed_months_fill_rate"]
-        lookback_start_date = self.observed_end_date - relativedelta(
-            months=fill_rate_lookback_months
-        )
-        observed_fill_rate_by_country = self.fill_rate.loc[
-            (self.fill_rate.submission_month <= self.observed_end_date)
-            & (self.fill_rate.submission_month >= lookback_start_date),
-            ["country", "fill_rate", "position"],
-        ]
-
-        self.fill_rate_by_country = observed_fill_rate_by_country.groupby(
-            ["country", "position"], as_index=False
-        ).mean()
-
         self.next(self.calculate_inventory_per_client)
 
     @step
@@ -634,6 +572,70 @@ class AdTilesForecastFlow(FlowSpec):
             * inventory_forecast["inv_per_client"]
         )
         self.inventory_forecast = inventory_forecast
+        self.next(self.get_fill_rate)
+
+    @step
+    def get_fill_rate(self):
+        """Get fill rate by country and tile position.
+
+        Creates fill_rate and sponsored_impressions columns.
+        Imputes countries specified in config
+        """
+        # join on newtab vists and calculate fill rates
+        impressions_with_newtab = self.impressions.merge(
+            self.newtab_visits, on=["submission_month", "country"], how="inner"
+        )
+
+        impressions_with_newtab["fill_rate"] = (
+            impressions_with_newtab["sponsored_impressions"]
+            / impressions_with_newtab.newtab_visits
+        )
+
+        self.fill_rate = impressions_with_newtab
+
+        # impute fill rate for countries specified in config
+        if "new_markets" in self.config_data:
+            fill_rate_columns = ["submission_month", "country", "fill_rate", "position"]
+            imputation_data = self.config_data["new_markets"]
+            fill_rate_raw_no_imputation = impressions_with_newtab.loc[
+                ~impressions_with_newtab.country.isin(imputation_data),
+                fill_rate_columns,
+            ]
+            imputed_data_list = [fill_rate_raw_no_imputation]
+            # iterate through countries to impute
+            for country, imputation_info in imputation_data.items():
+                impute_with = impressions_with_newtab.loc[
+                    impressions_with_newtab.country.isin(
+                        imputation_info["countries_to_use"]
+                    ),
+                    fill_rate_columns,
+                ]
+                impute_grouped = (
+                    impute_with.drop(columns=["country"])
+                    .groupby(["submission_month", "position"], as_index=False)
+                    .mean()
+                )
+                impute_grouped["country"] = country
+                imputed_data_list.append(impute_grouped)
+            fill_rate_with_imputation = pd.concat(imputed_data_list)
+            self.fill_rate = fill_rate_with_imputation
+
+        fill_rate_lookback_months = self.config_data["observed_months_fill_rate"]
+        lookback_start_date = self.observed_end_date - relativedelta(
+            months=fill_rate_lookback_months
+        )
+        observed_fill_rate_by_country_and_position = self.fill_rate.loc[
+            (self.fill_rate.submission_month <= self.observed_end_date)
+            & (self.fill_rate.submission_month >= lookback_start_date),
+            ["country", "fill_rate", "position"],
+        ]
+
+        self.fill_rate_by_country_and_position = (
+            observed_fill_rate_by_country_and_position.groupby(
+                ["country", "position"], as_index=False
+            ).mean()
+        )
+
         self.next(self.add_impression_forecast)
 
     @step
@@ -643,9 +645,9 @@ class AdTilesForecastFlow(FlowSpec):
         This is obtained by multiplying the inventory forecast
         by the fill rate
         """
-        fill_rate_by_country = self.fill_rate_by_country
+        fill_rate_by_country_and_position = self.fill_rate_by_country_and_position
         self.revenue_forecast = pd.merge(
-            self.inventory_forecast, fill_rate_by_country, on="country"
+            self.inventory_forecast, fill_rate_by_country_and_position, on="country"
         )
 
         self.revenue_forecast["impressions"] = (
