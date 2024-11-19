@@ -755,8 +755,7 @@ class AdTilesForecastFlow(FlowSpec):
         )
 
         direct_sales_df["impressions"] = (
-            direct_sales_df["impressions"]
-            * remove_direct_sales_df["direct_sales_allocations"]
+            direct_sales_df["impressions"] * direct_sales_df["direct_sales_allocations"]
         )
 
         remove_direct_sales_df["revenue"] = (
