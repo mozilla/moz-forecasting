@@ -802,9 +802,6 @@ class AdTilesForecastFlow(FlowSpec):
         write_df["forecast_month"] = self.first_day_of_current_month
         write_df["clicks"] = None
         write_df = write_df.merge(self.forecast_predicted_at, how="inner", on="device")
-        write_df = write_df.merge(
-            self.by_country_cpm_df, on=["country", "position"], how="inner"
-        )
 
         write_df = write_df.rename(columns={"country": "country_code"})
 
