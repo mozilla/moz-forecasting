@@ -800,6 +800,7 @@ class AdTilesForecastFlow(FlowSpec):
         write_df["pricing_model"] = "impressions"
         write_df["forecast_month"] = self.first_day_of_current_month
         write_df["clicks"] = None
+        write_df["advertiser"] = None
         write_df = write_df.merge(self.forecast_predicted_at, how="inner", on="device")
 
         write_df = write_df.rename(columns={"country": "country_code"})
@@ -809,6 +810,7 @@ class AdTilesForecastFlow(FlowSpec):
                 "country_code",
                 "submission_month",
                 "direct_sales_included",
+                "advertiser",
                 "device",
                 "placement",
                 "product",
@@ -842,6 +844,7 @@ class AdTilesForecastFlow(FlowSpec):
             bigquery.SchemaField("country_code", "STRING"),
             bigquery.SchemaField("submission_month", "DATETIME"),
             bigquery.SchemaField("direct_sales_included", "BOOLEAN"),
+            bigquery.SchemaField("advertiser", "STRING"),
             bigquery.SchemaField("device", "STRING"),
             bigquery.SchemaField("placement", "STRING"),
             bigquery.SchemaField("product", "STRING"),

@@ -2,16 +2,22 @@
 observed_months: 6
 
 # countries to include in forecast
-countries:
-  - AU
-  - BR
-  - CA
-  - DE
-  - ES
-  - FR
-  - GB
-  - IN
-  - US
+CPC:
+  US: .1
+  DE: .1
+  FR: .05
+  UK: .05
+  ES: .05
+  CA: .05
+  BR: .05
+  AU: .05
+  IN: .01
+  JP: .05
+  PL: .05
+  NL: .05
+  BE: .05
+  SG: .05
+  SE: .05
 
 # elgilibity rules for different product/platform combos
 elgibility:
@@ -31,8 +37,14 @@ elgibility:
                     OR (country = "DE" AND submission_date >= "2022-12-05")
                     OR (country IN ("BR", "CA", "ES",
                                         "FR", "GB", "IN", "AU")
+                            AND submission_date >= "2023-05-15")
+                    OR 
+                    -- new countries + japan
+                    (country IN ("JP", "PL", "NL",
+                                        "BE", "SG", "SE")
                             AND submission_date >= "2023-05-15")))
-            OR (os = "iOS"
+            OR 
+              (os = "iOS"
                 AND version > 101
                 AND (
                     (country = "US"
@@ -42,7 +54,12 @@ elgibility:
                     OR (country IN ("BR", "CA", "ES",
                                         "FR", "GB", "IN", "AU")
                         AND submission_date >= "2023-05-15")
-                ))) ;
+                    OR 
+                    -- new countries + japan
+                    (country IN ("JP", "PL", "NL",
+                                        "BE", "SG", "SE")
+                            AND submission_date >= "2023-05-15")))
+                );
     desktop:
       function_call: IsElgibleTilesDesktop(app_name, app_version_major, country, submission_date)
       bq_function: >
@@ -74,4 +91,16 @@ elgibility:
 excluded_advertisers:
   - "o=45:a"
   - yandex
+
+# output table, should match ad_tiles_forecast
+output:
+  test:
+    project: moz-fx-data-bq-data-science
+    database: jsnyder
+    table: amp_rpm_forecasts
+  prod:
+    project: moz-fx-data-shared-prod
+    database: ads_derived
+    table: tiles_monthly_v1
+
 

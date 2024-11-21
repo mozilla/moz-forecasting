@@ -42,6 +42,7 @@ The meanings of each column are as follows:
    - `country_code` (STRING): two-letter country code
    - `forecast_month` (DATETIME):  Month that the forecast was generated
    - `direct_sales_included` (BOOLEAN): Indicates whether the allocation to direct sales is subtracted (True) or ignored (False).  Note that it is True when `product` is `tile direct sales`
+   - `advertiser`: Null, only used for mobile
    - `impressions` (FLOAT):  Predicted number of impressions, can be null when the pricing model is clicks
    - `clicks` (FLOAT):  Predicted number of clicks, can be null when the pricing model is impressions
    - `revenue` (FLOAT): Predicted revenue
