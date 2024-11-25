@@ -29,6 +29,14 @@ class MobileAdTilesForecastFlow(FlowSpec):
         default="moz_forecasting/mobile_ad_tiles/config.yaml",
     )
 
+    test_mode = Parameter(
+        name="test_mode",
+        help="indicates whether or not run should affect production",
+        default=True,
+    )
+
+    write = Parameter(name="write", help="whether or not to write to BQ", default=False)
+
     set_forecast_month = Parameter(
         name="forecast_month",
         help="indicate historical month to set forecast date to in %Y-%m format",
@@ -44,7 +52,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         """
         # load config
         self.config_data = yaml.safe_load(self.config)
-        self.countries = self.config_data["countries"]
+        self.countries = list(self.config_data["CPC"].keys())
         self.excluded_advertisers = self.config_data["excluded_advertisers"]
 
         if not self.set_forecast_month:
@@ -147,14 +155,11 @@ class MobileAdTilesForecastFlow(FlowSpec):
             pivoted_table as (SELECT * FROM only_most_recent_kpi_forecasts
                                     PIVOT (SUM(value)
                                     FOR measure
-                                        IN ('observed','p10', 'p90', 'mean', 'p50')))
+                                        IN ('observed', 'p50')))
         SELECT submission_date as submission_month,
             forecast_predicted_at,
             REPLACE(CAST(metric_alias AS STRING), "_dau", "") as platform,
             ANY_VALUE(observed) as observed_dau,
-            ANY_VALUE(p10) as p10_forecast,
-            ANY_VALUE(p90) as p90_forecast,
-            ANY_VALUE(mean) as mean_forecast,
             ANY_VALUE(p50) as median_forecast
         FROM pivoted_table
         WHERE (submission_date >= DATE('{observed_start_date}'))
@@ -317,9 +322,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
             [
                 "submission_month",
                 "median_forecast",
-                "mean_forecast",
-                "p10_forecast",
-                "p90_forecast",
                 "platform",
             ],
         ]
@@ -330,9 +332,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
                 "submission_month",
                 "country",
                 "median_forecast",
-                "mean_forecast",
-                "p10_forecast",
-                "p90_forecast",
                 "share_by_market",
                 "platform",
             ]
@@ -346,19 +345,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
                 dau_forecast_by_country[column]  # elgilibity factor
                 * dau_forecast_by_country["share_by_market"]
                 * dau_forecast_by_country["median_forecast"]
-            )
-
-            # add 90th and 10th percentiles
-            dau_forecast_by_country[forecast_column_name + "_p90"] = (
-                dau_forecast_by_country[column]  # elgilibity factor
-                * dau_forecast_by_country["share_by_market"]
-                * dau_forecast_by_country["p90_forecast"]
-            )
-
-            dau_forecast_by_country[forecast_column_name + "_p10"] = (
-                dau_forecast_by_country[column]  # elgilibity factor
-                * dau_forecast_by_country["share_by_market"]
-                * dau_forecast_by_country["p10_forecast"]
             )
         self.dau_forecast_by_country = dau_forecast_by_country
         self.next(self.get_tile_data)
@@ -374,7 +360,13 @@ class MobileAdTilesForecastFlow(FlowSpec):
         amazon_clicks: number of clicks on amazon tiles
         other_clicks: number of clicks on non-amazon tiles
         """
-        forecast_start = self.first_day_of_previous_month.strftime("%Y-%m-%d")
+        first_day_of_previous_month = self.first_day_of_previous_month.strftime(
+            "%Y-%m-%d"
+        )
+        first_day_of_current_month = self.first_day_of_current_month.strftime(
+            "%Y-%m-%d"
+        )
+
         countries_string = ",".join(f"'{el}'" for el in self.countries)
         excluded_advertisers_string = ",".join(
             f"'{el}'" for el in self.excluded_advertisers
@@ -382,26 +374,22 @@ class MobileAdTilesForecastFlow(FlowSpec):
         clicks_query = f"""SELECT
                         (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
                         country,
-                        COALESCE(SUM(
-                            IF(advertiser = "amazon",
-                                click_count,
-                                0)),
-                            0) AS amazon_clicks,
-                        COALESCE(SUM(
-                            IF(advertiser NOT IN ("amazon",
-                                                    {excluded_advertisers_string}),
-                                click_count,
-                                0)),
-                            0) AS other_clicks
+                        position,
+                        IF(advertiser="amazon", "amazon", "other") as advertiser,
+                        SUM(click_count) as clicks
                     FROM
                         {self.event_aggregates_table_sponsored}
                     WHERE
-                        submission_date >= "{forecast_start}"
+                        submission_date >= "{first_day_of_previous_month}"
+                        AND submission_date <"{first_day_of_current_month}"
                         AND form_factor = "phone"
                         AND country IN ({countries_string})
+                        AND position in (0,1,2,3,4)
                     GROUP BY
                         submission_month,
-                        country"""
+                        country,
+                        position,
+                        advertiser"""
         client = bigquery.Client(project=GCP_PROJECT_NAME)
         click_query_job = client.query(clicks_query)
         click_data = click_query_job.to_dataframe()
@@ -409,41 +397,62 @@ class MobileAdTilesForecastFlow(FlowSpec):
             [
                 "submission_month",
                 "country",
-                "amazon_clicks",
-                "other_clicks",
+                "position",
+                "advertiser",
+                "clicks",
             ]
         ]
+
+        self.clicks = clicks
 
         client_fraction_query = f"""SELECT
                         (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
                         country,
+                        position,
                         COALESCE(SUM(IF(advertiser = "amazon",
                                             user_count,
-                                            0))/SUM(user_count)) AS p_amazon,
+                                            0))/SUM(user_count)) AS amazon,
                         COALESCE(
                             SUM(IF(advertiser NOT IN ("amazon",
                                                         {excluded_advertisers_string}),
                                             user_count,
-                                            0))/SUM(user_count)) AS p_other,
+                                            0))/SUM(user_count)) AS other,
                     FROM
                         {self.event_aggregates_table}
                     WHERE
-                        submission_date >= "{forecast_start}"
+                        submission_date >= "{first_day_of_previous_month}"
+                        AND submission_date <"{first_day_of_current_month}"
                         AND form_factor = "phone"
                         AND event_type = "impression"
                         AND source = "topsites"
                         AND country IN ({countries_string})
+                        AND position in (0,1,2,3,4)
                     GROUP BY
                         submission_month,
-                        country"""
+                        country,
+                        position"""
         client = bigquery.Client(project=GCP_PROJECT_NAME)
         client_fraction_job = client.query(client_fraction_query)
         client_fraction_data = client_fraction_job.to_dataframe()
-        inventory = client_fraction_data[
-            ["submission_month", "country", "p_amazon", "p_other"]
+        client_fraction_data_melt = client_fraction_data.melt(
+            id_vars=["submission_month", "country", "position"],
+            value_vars=["amazon", "other"],
+            var_name="advertiser",
+            value_name="fraction_clients_with_advertiser",
+        )
+        inventory = client_fraction_data_melt[
+            [
+                "submission_month",
+                "country",
+                "position",
+                "advertiser",
+                "fraction_clients_with_advertiser",
+            ]
         ]
 
-        self.events_data = clicks.merge(inventory, on=["submission_month", "country"])
+        self.events_data = clicks.merge(
+            inventory, on=["submission_month", "country", "position", "advertiser"]
+        )
 
         self.events_data["submission_month"] = pd.to_datetime(
             self.events_data["submission_month"]
@@ -473,28 +482,25 @@ class MobileAdTilesForecastFlow(FlowSpec):
             aggregate_data.submission_month == previous_month
         ].drop(columns="submission_month")
 
-        aggregate_data["amazon_clients"] = (
-            aggregate_data["p_amazon"] * aggregate_data["eligible_mobile_tiles_clients"]
-        )
-        aggregate_data["other_clients"] = (
-            aggregate_data["p_other"] * aggregate_data["eligible_mobile_tiles_clients"]
+        aggregate_data["number_clients_with_advertiser"] = (
+            aggregate_data["fraction_clients_with_advertiser"]
+            * aggregate_data["eligible_mobile_tiles_clients"]
         )
 
-        aggregate_data["amazon_clicks_per_qdau"] = (
-            aggregate_data["amazon_clicks"] / aggregate_data["amazon_clients"]
-        )
-        aggregate_data["other_clicks_per_qdau"] = (
-            aggregate_data["other_clicks"] / aggregate_data["other_clients"]
+        aggregate_data["clicks_per_qdau"] = (
+            aggregate_data["clicks"] / aggregate_data["number_clients_with_advertiser"]
         )
 
         # in notebook this is mobile_forecasting_data
         self.usage_by_country = aggregate_data[
             [
                 "country",
-                "p_amazon",
-                "p_other",
-                "amazon_clicks_per_qdau",
-                "other_clicks_per_qdau",
+                "position",
+                "advertiser",
+                "eligible_mobile_tiles_clients",
+                "fraction_clients_with_advertiser",
+                "number_clients_with_advertiser",
+                "clicks_per_qdau",
             ]
         ]
 
@@ -508,39 +514,14 @@ class MobileAdTilesForecastFlow(FlowSpec):
         - amazon_cpc
         - other_cpc
         """
-        date_start = self.first_day_of_previous_month.strftime("%Y-%m-%d")
-        countries_string = ",".join(f"'{el}'" for el in self.countries)
-        query = f"""
-        with group_ads AS (
-            SELECT
-            revenue_data_admarketplace.country_code  AS country,
-            advertiser,
-            SAFE_DIVIDE(COALESCE(SUM(revenue_data_admarketplace.payout ), 0),
-                COALESCE(SUM(revenue_data_admarketplace.valid_clicks ), 0)) AS cpc
-            FROM `{self.cpc_table}` AS revenue_data_admarketplace
-            WHERE
-            (revenue_data_admarketplace.adm_date ) >= (DATE('{date_start}'))
-            AND (revenue_data_admarketplace.country_code ) IN ({countries_string})
-            AND (revenue_data_admarketplace.product ) = 'mobile tile'
-            GROUP BY 1, 2
-        ), sep_CPC AS (
-            SELECT
-            country,
-            CASE WHEN advertiser = 'amazon' THEN cpc ELSE 0 END AS amazon_cpc,
-            CASE WHEN advertiser != 'amazon' THEN cpc ELSE 0 END AS other_cpc,
-            FROM group_ads
-        )
-        SELECT country,
-            MAX(amazon_cpc) as amazon_cpc,
-            MAX(other_cpc) as other_cpc
-        FROM sep_CPC
-        GROUP BY 1
-        """
+        cpc_list = []
+        for country, cpc in self.config_data["CPC"].items():
+            country_cpcs = [
+                {"country": country, "position": i, "cpc": cpc} for i in range(0, 5)
+            ]
+            cpc_list += country_cpcs
 
-        client = bigquery.Client(project=GCP_PROJECT_NAME)
-        query_job = client.query(query)
-
-        self.mobile_cpc = query_job.to_dataframe()
+        self.mobile_cpc = pd.DataFrame(cpc_list)
 
         self.next(self.combine_bq_tables)
 
@@ -549,7 +530,10 @@ class MobileAdTilesForecastFlow(FlowSpec):
         """Combine all data and calculate metrics."""
         forecast_start_date = self.first_day_of_current_month.strftime("%Y-%m-%d")
         country_level_metrics = pd.merge(
-            self.usage_by_country, self.mobile_cpc, how="left", on="country"
+            self.usage_by_country,
+            self.mobile_cpc,
+            how="left",
+            on=["country", "position"],
         )
 
         dau_forecast_by_country = self.dau_forecast_by_country[
@@ -563,89 +547,128 @@ class MobileAdTilesForecastFlow(FlowSpec):
             country_level_metrics, dau_forecast_by_country, how="inner", on="country"
         )
 
-        rev_forecast_dat["est_value_amazon_qdau"] = (
-            rev_forecast_dat["dau_forecast_tiles"] * rev_forecast_dat["p_amazon"]
-        )
-        rev_forecast_dat["10p_amazon_qdau"] = (
-            rev_forecast_dat["dau_forecast_tiles_p10"] * rev_forecast_dat["p_amazon"]
-        )
-        rev_forecast_dat["90p_amazon_qdau"] = (
-            rev_forecast_dat["dau_forecast_tiles_p90"] * rev_forecast_dat["p_amazon"]
+        rev_forecast_dat["dau_with_advertiser"] = (
+            rev_forecast_dat["dau_forecast_tiles"]
+            * rev_forecast_dat["fraction_clients_with_advertiser"]
         )
 
-        rev_forecast_dat["amazon_clicks"] = (
-            rev_forecast_dat["est_value_amazon_qdau"]
-            * rev_forecast_dat["amazon_clicks_per_qdau"]
+        rev_forecast_dat["clicks"] = (
+            rev_forecast_dat["dau_with_advertiser"]
+            * rev_forecast_dat["clicks_per_qdau"]
         )
-        # amazon cpc
-        rev_forecast_dat["amazon_revenue"] = (
-            rev_forecast_dat["amazon_clicks"] * rev_forecast_dat["amazon_cpc"]
-        )
-
-        rev_forecast_dat["est_value_other_qdau"] = (
-            rev_forecast_dat["dau_forecast_tiles"] * rev_forecast_dat["p_other"]
-        )
-        rev_forecast_dat["10p_other_qdau"] = (
-            rev_forecast_dat["dau_forecast_tiles_p10"] * rev_forecast_dat["p_other"]
-        )
-        rev_forecast_dat["90p_other_qdau"] = (
-            rev_forecast_dat["dau_forecast_tiles_p90"] * rev_forecast_dat["p_other"]
-        )
-        rev_forecast_dat["other_clicks"] = (
-            rev_forecast_dat["est_value_other_qdau"]
-            * rev_forecast_dat["other_clicks_per_qdau"]
-        )
-        # other cpc
-        rev_forecast_dat["other_revenue"] = (
-            rev_forecast_dat["other_clicks"] * rev_forecast_dat["other_cpc"]
+        rev_forecast_dat["revenue"] = (
+            rev_forecast_dat["clicks"] * rev_forecast_dat["cpc"]
         )
 
-        rev_forecast_dat["total_clicks"] = (
-            rev_forecast_dat["other_clicks"] + rev_forecast_dat["amazon_clicks"]
-        )
-        rev_forecast_dat["total_revenue"] = (
-            rev_forecast_dat["other_revenue"] + rev_forecast_dat["amazon_revenue"]
-        )
-        rev_forecast_dat["device"] = "mobile"
-
-        prefix = "automated_kpi_confidence_intervals_estimated"
-        rev_forecast_dat = rev_forecast_dat.rename(
-            columns={
-                "p90_forecast": f"{prefix}_90th_percentile",
-                "p10_forecast": f"{prefix}_10th_percentile",
-                "mean_forecast": f"{prefix}_value",
-            }
-        )
-
-        self.rev_forecast_dat = rev_forecast_dat
+        self.output_df = rev_forecast_dat
 
         self.next(self.end)
 
     @step
     def end(self):
         """Write data."""
-        output_columns = [
-            "submission_month",
-            "country",
-            "est_value_amazon_qdau",
-            "10p_amazon_qdau",
-            "90p_amazon_qdau",
-            "amazon_clicks_per_qdau",
-            "amazon_clicks",
-            "amazon_cpc",
-            "amazon_revenue",
-            "est_value_other_qdau",
-            "10p_other_qdau",
-            "90p_other_qdau",
-            "other_clicks_per_qdau",
-            "other_clicks",
-            "other_cpc",
-            "other_revenue",
-            "total_clicks",
-            "total_revenue",
+        write_df = self.output_df
+        write_df["product"] = "mobile tile"
+        write_df["device"] = "mobile"
+        write_df["placement"] = "newtab"
+        write_df["pricing_model"] = "clicks"
+        write_df["forecast_month"] = self.first_day_of_current_month
+        write_df["impressions"] = None
+        write_df["direct_sales_included"] = None  # no mobile direct sales
+
+        # NOTE: CPM here is a misnomer
+        # it's a cpc when pricing_model = clicks
+        write_df = write_df.merge(self.forecast_predicted_at, how="inner", on="device")
+
+        write_df = write_df.rename(columns={"country": "country_code", "cpc": "CPM"})
+
+        write_df = write_df[
+            [
+                "country_code",
+                "submission_month",
+                "direct_sales_included",
+                "advertiser",
+                "device",
+                "placement",
+                "product",
+                "pricing_model",
+                "forecast_month",
+                "forecast_predicted_at",
+                "position",
+                "impressions",
+                "clicks",
+                "revenue",
+                "CPM",
+            ]
         ]
 
-        self.write_df = self.rev_forecast_dat[output_columns]
+        # currently AMP table doesn't have position level info
+        # so to match that sum clicks and revenue over position and
+        # set it to null
+        write_df["position"] = None
+        write_df = write_df.groupby(
+            [
+                "country_code",
+                "submission_month",
+                "direct_sales_included",
+                "advertiser",
+                "device",
+                "placement",
+                "product",
+                "pricing_model",
+                "forecast_month",
+                "forecast_predicted_at",
+                "position",
+                "impressions",
+                "CPM",
+            ],
+            as_index=False,
+            dropna=False,
+        ).sum()
+
+        self.write_df = write_df
+
+        if not self.write or "output" not in self.config_data:
+            return
+
+        if self.test_mode and GCP_PROJECT_NAME != "moz-fx-mfouterbounds-prod-f98d":
+            # case where testing locally
+            output_info = self.config_data["output"]["test"]
+        elif self.test_mode and GCP_PROJECT_NAME == "moz-fx-mfouterbounds-prod-f98d":
+            # case where testing in outerbounds, just want to exit
+            return
+        else:
+            output_info = self.config_data["output"]["prod"]
+        target_table = (
+            f"{output_info['project']}.{output_info['database']}.{output_info['table']}"
+        )
+        schema = [
+            bigquery.SchemaField("country_code", "STRING"),
+            bigquery.SchemaField("submission_month", "DATETIME"),
+            bigquery.SchemaField("direct_sales_included", "BOOLEAN"),
+            bigquery.SchemaField("advertiser", "STRING"),
+            bigquery.SchemaField("device", "STRING"),
+            bigquery.SchemaField("placement", "STRING"),
+            bigquery.SchemaField("product", "STRING"),
+            bigquery.SchemaField("pricing_model", "STRING"),
+            bigquery.SchemaField("forecast_month", "DATETIME"),
+            bigquery.SchemaField("forecast_predicted_at", "TIMESTAMP"),
+            bigquery.SchemaField("position", "INTEGER"),
+            bigquery.SchemaField("impressions", "FLOAT"),
+            bigquery.SchemaField("clicks", "FLOAT"),
+            bigquery.SchemaField("revenue", "FLOAT"),
+            bigquery.SchemaField("CPM", "FLOAT"),
+        ]
+        job_config = bigquery.LoadJobConfig(
+            write_disposition="WRITE_APPEND",
+            create_disposition="CREATE_NEVER",
+            schema=schema,
+        )
+
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
+        print(f"writing to: {target_table}")
+
+        client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ The output table is indexed by country, month (`submission_month`), and whether 
 ### `inventory_forecast` derivation
 
 In very broad steps, the forecast progresses as follows:
+
 1. Initially a global forecast by month (`submission_month`) is obtained from the KPI forecast table, which is maintained by the Product Data Science team (more details [here](https://mozilla-hub.atlassian.net/wiki/spaces/DATA/pages/314704478/Daily+Active+Users+DAU+Metric).
 2. This is turned into a country-level newtab impression forecast by joining on country-level factors, resuling in a dataframe where each row specifies a specific month and a specific country
 3. The fill rate by country and tile position is joined on to the country-level dataframe.  This is used to generate the final output of the forecast, the impressions and revenue by month, country, and tile position.
@@ -42,6 +43,7 @@ The meanings of each column are as follows:
    - `country_code` (STRING): two-letter country code
    - `forecast_month` (DATETIME):  Month that the forecast was generated
    - `direct_sales_included` (BOOLEAN): Indicates whether the allocation to direct sales is subtracted (True) or ignored (False).  Note that it is True when `product` is `tile direct sales`
+   - `advertiser`: Null, only used for mobile
    - `impressions` (FLOAT):  Predicted number of impressions, can be null when the pricing model is clicks
    - `clicks` (FLOAT):  Predicted number of clicks, can be null when the pricing model is impressions
    - `revenue` (FLOAT): Predicted revenue
