@@ -66,17 +66,31 @@ def get_direct_allocation_df(
                 "direct_sales_allocations": [segment["allocation"]] * len(date_range),
             }
         )
-        for country in segment["markets"]:
-            df["country"] = country
-            direct_allocation_df_list.append(df.copy())
+        for position in segment["positions"]:
+            for country, cpm in segment["markets"].items():
+                df["country"] = country
+                df["direct_sales_CPM"] = cpm
+                df["position"] = position
+                direct_allocation_df_list.append(df.copy())
     direct_allocation_df = pd.concat(direct_allocation_df_list)
 
     # the same month/country combination can be present in multiple
     # direct allocation segments
-    # aggregate to get the sum
+    # aggregate to get the sum of the allocation
+    # for the cpm, get the average weighted by allocation
+    # this will give us the correct amount of revenue when multiplied by
+    # allocated impressions later
+    direct_allocation_df["direct_sales_CPM"] = (
+        direct_allocation_df["direct_sales_CPM"]
+        * direct_allocation_df["direct_sales_allocations"]
+    )
     direct_allocation_df = direct_allocation_df.groupby(
-        ["submission_month", "country"], as_index=False
+        ["submission_month", "country", "position"], as_index=False
     ).sum()
+    direct_allocation_df["direct_sales_CPM"] = (
+        direct_allocation_df["direct_sales_CPM"]
+        / direct_allocation_df["direct_sales_allocations"]
+    )
 
     # ensure that no month/country combination is more than 100% allocated
     all_allocated = direct_allocation_df[
@@ -124,7 +138,7 @@ class AdTilesForecastFlow(FlowSpec):
         # load config
         self.config_data = yaml.safe_load(self.config)
 
-        if not self.set_forecast_month:
+        if self.set_forecast_month is None:
             self.first_day_of_current_month = datetime.today().replace(day=1)
         else:
             self.first_day_of_current_month = datetime.strptime(
@@ -447,14 +461,10 @@ class AdTilesForecastFlow(FlowSpec):
         query_end_date = self.first_day_of_current_month.strftime("%Y-%m-%d")
         tile_impression_data_query = f""" SELECT
                                 country,
+                                position,
                                 (FORMAT_DATE('%Y-%m', submission_date ))
                                     AS submission_month,
-                                SUM(IF(position = 1, impression_count, 0))
-                                    AS sponsored_impressions_1,
-                                 SUM(IF(position = 2, impression_count, 0))
-                                    AS sponsored_impressions_2,
-                                SUM(IF(position = 3, impression_count, 0))
-                                    AS sponsored_impressions_3,
+                                SUM(impression_count) as sponsored_impressions
                             FROM
                                 `{self.event_aggregates_table}`
                             WHERE
@@ -463,7 +473,8 @@ class AdTilesForecastFlow(FlowSpec):
                                 AND form_factor = "desktop"
                             GROUP BY
                                 country,
-                                submission_month"""
+                                submission_month,
+                                position"""
         client = bigquery.Client(project=GCP_PROJECT_NAME)
         impressions = client.query(tile_impression_data_query).to_dataframe()
         impressions["submission_month"] = pd.to_datetime(
@@ -500,75 +511,6 @@ class AdTilesForecastFlow(FlowSpec):
             newtab_visits["submission_month"]
         )
         self.newtab_visits = newtab_visits
-        self.next(self.get_fill_rate)
-
-    @step
-    def get_fill_rate(self):
-        """Get fill rate.
-
-        Creates fill_rate and sponsored_impressions columns.
-        Imputes countries specified in config
-        """
-        # join on newtab vists and calculate fill rates
-        impressions_with_newtab = self.impressions.merge(
-            self.newtab_visits, on=["submission_month", "country"], how="inner"
-        )
-
-        fill_rate_columns = []
-        for position in ["1", "2", "3"]:
-            impressions_with_newtab[f"fill_rate_tile{position}"] = (
-                impressions_with_newtab[f"sponsored_impressions_{position}"]
-                / impressions_with_newtab.newtab_visits
-            )
-            fill_rate_columns.append(f"fill_rate_tile{position}")
-
-        self.fill_rate = impressions_with_newtab
-        self.fill_rate_columns = fill_rate_columns
-
-        # impute fill rate for countries specified in config
-        if "new_markets" in self.config_data:
-            fill_rate_columns = [
-                "submission_month",
-                "country",
-            ] + self.fill_rate_columns
-            imputation_data = self.config_data["new_markets"]
-            fill_rate_raw_no_imputation = impressions_with_newtab.loc[
-                ~impressions_with_newtab.country.isin(imputation_data),
-                fill_rate_columns,
-            ]
-            imputed_data_list = [fill_rate_raw_no_imputation]
-            # iterate through countries to impute
-            for country, imputation_info in imputation_data.items():
-                impute_with = impressions_with_newtab.loc[
-                    impressions_with_newtab.country.isin(
-                        imputation_info["countries_to_use"]
-                    ),
-                    fill_rate_columns,
-                ]
-                impute_grouped = (
-                    impute_with.drop(columns=["country"])
-                    .groupby(["submission_month"], as_index=False)
-                    .mean()
-                )
-                impute_grouped["country"] = country
-                imputed_data_list.append(impute_grouped)
-            fill_rate_with_imputation = pd.concat(imputed_data_list)
-            self.fill_rate = fill_rate_with_imputation
-
-        fill_rate_lookback_months = self.config_data["observed_months_fill_rate"]
-        lookback_start_date = self.observed_end_date - relativedelta(
-            months=fill_rate_lookback_months
-        )
-        observed_fill_rate_by_country = self.fill_rate.loc[
-            (self.fill_rate.submission_month <= self.observed_end_date)
-            & (self.fill_rate.submission_month >= lookback_start_date),
-            ["country"] + self.fill_rate_columns,
-        ]
-
-        self.fill_rate_by_country = observed_fill_rate_by_country.groupby(
-            ["country"], as_index=False
-        ).mean()
-
         self.next(self.calculate_inventory_per_client)
 
     @step
@@ -632,6 +574,70 @@ class AdTilesForecastFlow(FlowSpec):
             * inventory_forecast["inv_per_client"]
         )
         self.inventory_forecast = inventory_forecast
+        self.next(self.get_fill_rate)
+
+    @step
+    def get_fill_rate(self):
+        """Get fill rate by country and tile position.
+
+        Creates fill_rate and sponsored_impressions columns.
+        Imputes countries specified in config
+        """
+        # join on newtab vists and calculate fill rates
+        impressions_with_newtab = self.impressions.merge(
+            self.newtab_visits, on=["submission_month", "country"], how="inner"
+        )
+
+        impressions_with_newtab["fill_rate"] = (
+            impressions_with_newtab["sponsored_impressions"]
+            / impressions_with_newtab.newtab_visits
+        )
+
+        self.fill_rate = impressions_with_newtab
+
+        # impute fill rate for countries specified in config
+        if "new_markets" in self.config_data:
+            fill_rate_columns = ["submission_month", "country", "fill_rate", "position"]
+            imputation_data = self.config_data["new_markets"]
+            fill_rate_raw_no_imputation = impressions_with_newtab.loc[
+                ~impressions_with_newtab.country.isin(imputation_data),
+                fill_rate_columns,
+            ]
+            imputed_data_list = [fill_rate_raw_no_imputation]
+            # iterate through countries to impute
+            for country, imputation_info in imputation_data.items():
+                impute_with = impressions_with_newtab.loc[
+                    impressions_with_newtab.country.isin(
+                        imputation_info["countries_to_use"]
+                    ),
+                    fill_rate_columns,
+                ]
+                impute_grouped = (
+                    impute_with.drop(columns=["country"])
+                    .groupby(["submission_month", "position"], as_index=False)
+                    .mean()
+                )
+                impute_grouped["country"] = country
+                imputed_data_list.append(impute_grouped)
+            fill_rate_with_imputation = pd.concat(imputed_data_list)
+            self.fill_rate = fill_rate_with_imputation
+
+        fill_rate_lookback_months = self.config_data["observed_months_fill_rate"]
+        lookback_start_date = self.observed_end_date - relativedelta(
+            months=fill_rate_lookback_months
+        )
+        observed_fill_rate_by_country_and_position = self.fill_rate.loc[
+            (self.fill_rate.submission_month <= self.observed_end_date)
+            & (self.fill_rate.submission_month >= lookback_start_date),
+            ["country", "fill_rate", "position"],
+        ]
+
+        self.fill_rate_by_country_and_position = (
+            observed_fill_rate_by_country_and_position.groupby(
+                ["country", "position"], as_index=False
+            ).mean()
+        )
+
         self.next(self.add_impression_forecast)
 
     @step
@@ -641,26 +647,15 @@ class AdTilesForecastFlow(FlowSpec):
         This is obtained by multiplying the inventory forecast
         by the fill rate
         """
-        fill_rate_by_country = self.fill_rate_by_country
+        fill_rate_by_country_and_position = self.fill_rate_by_country_and_position
         self.revenue_forecast = pd.merge(
-            self.inventory_forecast, fill_rate_by_country, on="country"
+            self.inventory_forecast, fill_rate_by_country_and_position, on="country"
         )
 
-        # add a column for all fill_rate columns
-        # new column name replaces fill_rate with
-        # expected_impressions IE
-        # fill_rate_all_tiles -> expected_impressions_all_tiles
-        expected_impression_column_list = []
-        for fill_rate_column in self.fill_rate_columns:
-            impression_column = fill_rate_column.replace(
-                "fill_rate", "expected_impressions"
-            )
-            expected_impression_column_list.append(impression_column)
-            self.revenue_forecast[impression_column] = (
-                self.revenue_forecast["inventory_forecast"]
-                * self.revenue_forecast[fill_rate_column]
-            )
-        self.expected_impression_columns = expected_impression_column_list
+        self.revenue_forecast["impressions"] = (
+            self.revenue_forecast["inventory_forecast"]
+            * self.revenue_forecast["fill_rate"]
+        )
         self.next(self.account_for_direct_allocations)
 
     @step
@@ -668,31 +663,41 @@ class AdTilesForecastFlow(FlowSpec):
         """Add columns related to direct sales.
 
         Following columns are added:
-            direct_sales_markets: indicates whether country/month has direct sales
-                "y" for yes and "n" for no
-            direct_sales_allocations: The fraction of impressions allocated AMP
-            expected_impressions_direct_sales: Number of impressions allocated to AMP
+            direct_sales_allocations: The fraction of impressions allocated direct sales
         """
-        direct_allocation_df = get_direct_allocation_df(
-            self.config_data["direct_allocations"],
-            min_month=self.revenue_forecast["submission_month"].min(),
-            max_month=self.revenue_forecast["submission_month"].max(),
-        )
-        self.revenue_forecast = self.revenue_forecast.merge(
-            direct_allocation_df,
-            on=["submission_month", "country"],
-            how="left",
-        )
+        ## TODO BEFORE PR: do pivot on position before here and use position to join
+        ## and do revenue calc
+        if "direct_allocations" in self.config_data:
+            direct_allocation_df = get_direct_allocation_df(
+                self.config_data["direct_allocations"],
+                min_month=self.revenue_forecast["submission_month"].min(),
+                max_month=self.revenue_forecast["submission_month"].max(),
+            )
+            amp_forecast = self.revenue_forecast.merge(
+                direct_allocation_df[
+                    [
+                        "submission_month",
+                        "country",
+                        "position",
+                        "direct_sales_allocations",
+                        "direct_sales_CPM",
+                    ]
+                ],
+                on=["submission_month", "country", "position"],
+                how="left",
+            )
 
-        self.revenue_forecast["direct_sales_markets"] = "n"
-        self.revenue_forecast.loc[
-            self.revenue_forecast["direct_sales_allocations"] > 0.0,
-            "direct_sales_markets",
-        ] = "y"
-
-        self.revenue_forecast["direct_sales_allocations"] = self.revenue_forecast[
-            "direct_sales_allocations"
-        ].fillna(1.0)
+            amp_forecast["direct_sales_allocations"] = amp_forecast[
+                "direct_sales_allocations"
+            ].fillna(0)
+        else:
+            # no direct sales allocations
+            amp_forecast = self.revenue_forecast
+            amp_forecast["direct_sales_allocations"] = 0
+            amp_forecast["direct_sales_CPM"] = 0
+            direct_allocation_df = pd.DataFrame()
+        self.amp_forecast = amp_forecast
+        self.direct_allocation_df = direct_allocation_df
 
         self.next(self.forecast_revenue)
 
@@ -705,13 +710,6 @@ class AdTilesForecastFlow(FlowSpec):
         assuming all impressions got to AMP, respectively
         """
         CPMs = self.config_data["CPM"]
-
-        CPM_df = pd.DataFrame(
-            [
-                {"country": key, "CPM": val["tiles_1_and_2"], "CPM_3": val["tile3"]}
-                for key, val in CPMs.items()
-            ]
-        )
 
         by_country_cpm_list = []
         for country, cpms in CPMs.items():
@@ -726,7 +724,11 @@ class AdTilesForecastFlow(FlowSpec):
             )
         self.by_country_cpm_df = pd.DataFrame(by_country_cpm_list)
 
-        revenue_forecast = pd.merge(self.revenue_forecast, CPM_df, on="country")
+        revenue_forecast = pd.merge(
+            self.amp_forecast,
+            self.by_country_cpm_df,
+            on=["country", "position"],
+        )
 
         # Desktop CPMs were increased by 10% in summer of 2024
         # with an effective date of 2024-09-30
@@ -741,28 +743,49 @@ class AdTilesForecastFlow(FlowSpec):
         # and concat
 
         # multiply inventory by CPMs
-        no_direct_sales_df = revenue_forecast.copy()
+        remove_direct_sales_df = revenue_forecast.copy()
+        ignore_direct_sales_df = revenue_forecast.copy()
         direct_sales_df = revenue_forecast.copy()
-        for impression_col in self.expected_impression_columns:
-            for forecast_type, df in {
-                False: no_direct_sales_df,
-                True: direct_sales_df,
-            }.items():
-                impressions_direct_sales_col = impression_col + "_direct_sales"
-                df[impressions_direct_sales_col] = (
-                    self.revenue_forecast[impression_col]
-                    * self.revenue_forecast["direct_sales_allocations"]
-                )
-                revenue_col = impression_col.replace("expected_impressions", "revenue")
-                if revenue_col[-5:] == "tile3":
-                    # corresponds to third tile, use tile3 CPM
-                    df[revenue_col] = df[impression_col] * df["CPM_3"] / 1000
-                else:
-                    # all others apply tiles 1 and 2 CPM
-                    df[revenue_col] = df[impression_col] * df["CPM"] / 1000
-                df["direct_sales_included"] = forecast_type
 
-        revenue_forecast = pd.concat([no_direct_sales_df, direct_sales_df])
+        remove_direct_sales_df["impressions"] = (
+            remove_direct_sales_df["impressions"]
+            * (
+                1 - remove_direct_sales_df["direct_sales_allocations"]
+            )  # allocated to AMP
+        )
+
+        direct_sales_df["impressions"] = (
+            direct_sales_df["impressions"] * direct_sales_df["direct_sales_allocations"]
+        )
+
+        remove_direct_sales_df["revenue"] = (
+            remove_direct_sales_df["impressions"] * remove_direct_sales_df["CPM"] / 1000
+        )
+        ignore_direct_sales_df["revenue"] = (
+            ignore_direct_sales_df["impressions"] * ignore_direct_sales_df["CPM"] / 1000
+        )
+        direct_sales_df["revenue"] = (
+            direct_sales_df["impressions"] * direct_sales_df["direct_sales_CPM"] / 1000
+        )
+
+        ignore_direct_sales_df["forecast_type"] = "no_direct_sales"
+        ignore_direct_sales_df["direct_sales_included"] = False
+        ignore_direct_sales_df["product"] = "tile"
+
+        remove_direct_sales_df["forecast_type"] = "with_direct_sales"
+        remove_direct_sales_df["direct_sales_included"] = True
+        remove_direct_sales_df["product"] = "tile"
+
+        direct_sales_df["forecast_type"] = "direct_sales"
+        direct_sales_df["direct_sales_included"] = True
+        direct_sales_df["product"] = "tile direct sales"
+        direct_sales_df["CPM"] = direct_sales_df["direct_sales_CPM"]
+
+        # ignoring direct sales
+
+        revenue_forecast = pd.concat(
+            [ignore_direct_sales_df, remove_direct_sales_df, direct_sales_df]
+        )
 
         self.output_df = revenue_forecast
 
@@ -771,64 +794,34 @@ class AdTilesForecastFlow(FlowSpec):
     @step
     def end(self):
         """Write to BQ."""
-        id_vars = ["country", "submission_month", "direct_sales_included"]
-        revenue_df = self.output_df[
-            [
-                "country",
-                "submission_month",
-                "direct_sales_included",
-                "revenue_tile1",
-                "revenue_tile2",
-                "revenue_tile3",
-            ]
-        ].melt(
-            id_vars=id_vars,
-            value_vars=["revenue_tile1", "revenue_tile2", "revenue_tile3"],
-            var_name="position",
-            value_name="revenue",
-        )
-
-        revenue_df["position"] = revenue_df["position"].str.slice(start=-1).astype(int)
-
-        impressions_df = self.output_df[
-            [
-                "country",
-                "submission_month",
-                "direct_sales_included",
-                "expected_impressions_tile1",
-                "expected_impressions_tile2",
-                "expected_impressions_tile3",
-            ]
-        ].melt(
-            id_vars=id_vars,
-            value_vars=[
-                "expected_impressions_tile1",
-                "expected_impressions_tile2",
-                "expected_impressions_tile3",
-            ],
-            var_name="position",
-            value_name="impressions",
-        )
-
-        impressions_df["position"] = (
-            impressions_df["position"].str.slice(start=-1).astype(int)
-        )
-
-        write_df = impressions_df.merge(
-            revenue_df, on=id_vars + ["position"], how="inner"
-        )
+        write_df = self.output_df
         write_df["device"] = "desktop"
         write_df["placement"] = "newtab"
-        write_df["product"] = "tile"
         write_df["pricing_model"] = "impressions"
         write_df["forecast_month"] = self.first_day_of_current_month
         write_df["clicks"] = None
         write_df = write_df.merge(self.forecast_predicted_at, how="inner", on="device")
-        write_df = write_df.merge(
-            self.by_country_cpm_df, on=["country", "position"], how="inner"
-        )
 
         write_df = write_df.rename(columns={"country": "country_code"})
+
+        write_df = write_df[
+            [
+                "country_code",
+                "submission_month",
+                "direct_sales_included",
+                "device",
+                "placement",
+                "product",
+                "pricing_model",
+                "forecast_month",
+                "forecast_predicted_at",
+                "position",
+                "impressions",
+                "clicks",
+                "revenue",
+                "CPM",
+            ]
+        ]
 
         self.write_df = write_df
         if not self.write or "output" not in self.config_data:

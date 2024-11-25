@@ -11,7 +11,12 @@ The output table is indexed by country, month (`submission_month`), and whether 
 
 ### `inventory_forecast` derivation
 
-The forecast applies country-level factors to the DAU forecast.  In the code the data exists as a pandas dataframe where each row is uniquely identified by country and time (specifically, `submission_month`).  Throughout the code, country-level factors are joined on to this dataframe by country as new columns, which are multiplied to the DAU forecast elementwise.  One can think of the DAU forecast as a collection of independent timeseries for each country, where scalar factors are calculated and applied to the timeseries (see the diagram below).  The scalar factors are obtained by doing operations on country timeseries and aggregating over time to product country-level, scalar factors:
+In very broad steps, the forecast progresses as follows:
+1. Initially a global forecast by month (`submission_month`) is obtained from the KPI forecast table, which is maintained by the Product Data Science team (more details [here](https://mozilla-hub.atlassian.net/wiki/spaces/DATA/pages/314704478/Daily+Active+Users+DAU+Metric).
+2. This is turned into a country-level newtab impression forecast by joining on country-level factors, resuling in a dataframe where each row specifies a specific month and a specific country
+3. The fill rate by country and tile position is joined on to the country-level dataframe.  This is used to generate the final output of the forecast, the impressions and revenue by month, country, and tile position.
+
+A diagram shows how this process progresses at the country level.  The first step is the global dau forecast, which becomes a by-country dau and impression forecast.  The position and country level fill rates are then multiplied on, bifurcating the flow into three parallel flows, one for each tile position. The scalar factors multiplied on in each step are obtained by doing operations on country (and in the latter stages, country and tile position) timeseries and aggregating over time:
 
 ![inventory forecast flow diagram](desktop_tiles_flow.drawio.png)
 The idea behind the inventory forecast is to execute the following steps:
@@ -20,7 +25,7 @@ The idea behind the inventory forecast is to execute the following steps:
    - `share_by_market`:  The purpose of this factor is to convert the global forcast to a by-country forecast.  It is derived by taking the monthly cumulative DAU from `moz-fx-data-shared-prod.telemetry.active_users_aggregates` for a given country and dividing it by the total across all countries, yielding the fraction of the total dau contributed by that country.  This is then averaged over the number of months of past data specified in `observed_months` in the config file to get a scalar value for each country.
    -  `elgibility_factor`: The elgibility is specified for each product (IE tiles) individually for mobile and desktop as a sql function in the config file for each flow.  It is determined by which app version that the product became available in each country.  The monthly cumulative number of eligibile, active users **within a country** is calculated using this function on `moz-fx-data-shared-prod.telemetry.active_users_aggregates`, and divided by the total number of active users **within a country** to get a monthly elgbility factor for that country.  These are then averaged over the number of months specified in `observed_months` in the config to get a scalar value for each country.
 2. **turn country-level DAU into country-level newtab inventory by multiplying a scalar factor representing the ratio of the inventory to the dau by country**: The country-level newtab inventory by month is obtained from the table `newtab_clients_daily_aggregates`.  The count of newtab impressions and DAU are calculated by month and stored in `self.newtab_visits`.  The quotient is calculated and averaged by country to get a scalar factor, which is stored in `self.inventory_per_client`
-3. **turn country-level DAU into country-level tile impressions by multiplying by scalar fill rate**: The fill rate is calculated from tile impressions and newtab impressions obtained from the table `moz-fx-data-shared-prod.contextual_services.event_aggregates_spons_tiles` and stored in `self.impressions`.  The quotient of tile impressions and newtab impressions is taken, imputed for new geos, and averaged by country to obtain scalar values that are stored in `self.fill_rate_by_country`
+3. **turn country-level DAU into country and position-level tile impressions by multiplying by scalar fill rate**: The fill rate is calculated from tile impressions and newtab impressions obtained from the table `moz-fx-data-shared-prod.contextual_services.event_aggregates_spons_tiles` and stored in `self.impressions`.  The quotient of tile impressions and newtab impressions is taken, imputed for new geos, and averaged by country to obtain scalar values that are stored in `self.fill_rate_by_country_and_position`
 4. **turn county-level impressions into revenue by multiplying by CPM/1000**:  The CPMs are derived from config. Note that first two tiles have a different CPM than the third tile.  The CPMs are applied to the tile impressions and stored in `self.output_df` in the penultimate step.
 
 ## Output
@@ -30,11 +35,13 @@ Each row of thet table represents a specific tile position (indicated by `positi
 
 The meanings of each column are as follows:
    - `position` (INTEGER): Tile position
-   - `product` (STRING): indicates which "product" the row is associated with.  Currently only `tiles`, representing desktop tiles allocated to AMP, is supported
+   - `product` (STRING): indicates which "product" the row is associated with.  Current possible values:
+     -  `tile`, representing desktop tiles allocated to AMP.  Includes both scenarios where direct sales is ignored (`direct_sales_included` is false) and case where direct sales allocation is subtracted out (`direct_sales_included` is True)
+     -  `tile direct sales` :  Impressions and revenue for direct sales
    - `submission_month` (DATETIME): monthy associated with the forecast.  Will always be the first day in the month.
    - `country_code` (STRING): two-letter country code
    - `forecast_month` (DATETIME):  Month that the forecast was generated
-   - `direct_sales_included` (BOOLEAN): Indicates whether the allocation to direct sales is subtracted (True) or ignored (False)
+   - `direct_sales_included` (BOOLEAN): Indicates whether the allocation to direct sales is subtracted (True) or ignored (False).  Note that it is True when `product` is `tile direct sales`
    - `impressions` (FLOAT):  Predicted number of impressions, can be null when the pricing model is clicks
    - `clicks` (FLOAT):  Predicted number of clicks, can be null when the pricing model is impressions
    - `revenue` (FLOAT): Predicted revenue
