@@ -155,14 +155,11 @@ class MobileAdTilesForecastFlow(FlowSpec):
             pivoted_table as (SELECT * FROM only_most_recent_kpi_forecasts
                                     PIVOT (SUM(value)
                                     FOR measure
-                                        IN ('observed','p10', 'p90', 'mean', 'p50')))
+                                        IN ('observed', 'p50')))
         SELECT submission_date as submission_month,
             forecast_predicted_at,
             REPLACE(CAST(metric_alias AS STRING), "_dau", "") as platform,
             ANY_VALUE(observed) as observed_dau,
-            ANY_VALUE(p10) as p10_forecast,
-            ANY_VALUE(p90) as p90_forecast,
-            ANY_VALUE(mean) as mean_forecast,
             ANY_VALUE(p50) as median_forecast
         FROM pivoted_table
         WHERE (submission_date >= DATE('{observed_start_date}'))
@@ -325,9 +322,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
             [
                 "submission_month",
                 "median_forecast",
-                "mean_forecast",
-                "p10_forecast",
-                "p90_forecast",
                 "platform",
             ],
         ]
@@ -338,9 +332,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
                 "submission_month",
                 "country",
                 "median_forecast",
-                "mean_forecast",
-                "p10_forecast",
-                "p90_forecast",
                 "share_by_market",
                 "platform",
             ]
@@ -354,19 +345,6 @@ class MobileAdTilesForecastFlow(FlowSpec):
                 dau_forecast_by_country[column]  # elgilibity factor
                 * dau_forecast_by_country["share_by_market"]
                 * dau_forecast_by_country["median_forecast"]
-            )
-
-            # add 90th and 10th percentiles
-            dau_forecast_by_country[forecast_column_name + "_p90"] = (
-                dau_forecast_by_country[column]  # elgilibity factor
-                * dau_forecast_by_country["share_by_market"]
-                * dau_forecast_by_country["p90_forecast"]
-            )
-
-            dau_forecast_by_country[forecast_column_name + "_p10"] = (
-                dau_forecast_by_country[column]  # elgilibity factor
-                * dau_forecast_by_country["share_by_market"]
-                * dau_forecast_by_country["p10_forecast"]
             )
         self.dau_forecast_by_country = dau_forecast_by_country
         self.next(self.get_tile_data)
