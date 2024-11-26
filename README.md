@@ -58,3 +58,18 @@ Linting and Testing is run via circleci
 
 ### Docker
 A docker image is built for this project and is used by Outerbounds to run it.  The image is created by the CI and is only accessible to the service account associated with this project, `moz-fx-mfouterbounds-prod-f98d`.  The image is stored in GCR, which the CI interacts through via the `gcp-gcr` orb.  The image is only updated when a commit is made on the `main` branch, which (due to the repo's branch protection rules) will only happen when a PR gets merged.
+
+### Adding new flows
+New flows should be added to a directory under the `moz_forecasting` project directory.  Each flow should read in a config file which should parameterize as much about the flow as possible.  In order to be compatible with the backfill code in `backfill.py`,
+the config should have an `output` section containing `test` and `prod` sections, each specifying the `table`, `dataset` and `project` associated with the output using keys with those names.  For example:
+```
+output:
+  test:
+    project: moz-fx-data-bq-data-science
+    dataset: jsnyder
+    table: amp_rpm_forecasts
+  prod:
+    project: moz-fx-data-shared-prod
+    dataset: ads_derived
+    table: tiles_monthly_v1
+```
