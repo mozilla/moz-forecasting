@@ -169,14 +169,14 @@ new_markets:
       - GB
       - IT
 
-# specify the output database and table
+# specify the output dataset and table
 # to write the data to
 output:
   test:
     project: moz-fx-data-bq-data-science
-    database: jsnyder
+    dataset: jsnyder
     table: tiles_monthly_v1_test
   prod:
     project: moz-fx-data-shared-prod
-    database: ads_derived
+    dataset: ads_derived
     table: tiles_monthly_v1

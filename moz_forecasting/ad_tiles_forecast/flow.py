@@ -838,7 +838,7 @@ class AdTilesForecastFlow(FlowSpec):
         else:
             output_info = self.config_data["output"]["prod"]
         target_table = (
-            f"{output_info['project']}.{output_info['database']}.{output_info['table']}"
+            f"{output_info['project']}.{output_info['dataset']}.{output_info['table']}"
         )
         schema = [
             bigquery.SchemaField("country_code", "STRING"),

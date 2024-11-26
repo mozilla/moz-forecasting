@@ -66,14 +66,14 @@ def get_output_db_from_config(config_path: str, test_mode: bool) -> str:
     else:
         output_info = config_data["output"]["prod"]
     target_table = (
-        f"{output_info['project']}.{output_info['database']}.{output_info['table']}"
+        f"{output_info['project']}.{output_info['dataset']}.{output_info['table']}"
     )
     return target_table
 
 
 @click.command()
 @click.option(
-    "--test_mode", default=True, help="Whether to write to test or production database"
+    "--test_mode", default=True, help="Whether to write to test or production dataset"
 )
 @click.option(
     "--start_month",
