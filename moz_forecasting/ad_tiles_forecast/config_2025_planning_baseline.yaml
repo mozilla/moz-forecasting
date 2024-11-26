@@ -175,7 +175,7 @@ output:
   test:
     project: moz-fx-data-bq-data-science
     database: jsnyder
-    table: tiles_monthly
+    table: tiles_monthly_v1_test
   prod:
     project: moz-fx-data-shared-prod
     database: ads_derived
