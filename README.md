@@ -33,6 +33,17 @@ Once this is set up, make sure you are in the `revenue` perimeter locally with t
 
 One nice feature of metaflow is that a specific step can be configured to run in the cloud.  This is done via the `@kubernetes` decorator.  As with the command line argument, the docker image needs to be specified.  It would go before the step decorator and would look somethign like `@kubernetes(image="us-docker.pkg.dev/moz-fx-mfouterbounds-prod-f98d/mfouterbounds-prod/moz-forecasting:latest", cpu=1)`
 
+### Backfills
+Backfills can be executed via `backfill.py`.  It is run via `uv run` from the root of the project. The script iterates over all the months between `start_month` and `end_month` inclusive, setting `forecast_month` to each month and running the pipeline.  It will raise an error if you attempt to write and at least one of the months included already has data (meaning that there is a `forecast_month` in the table equal to the month you are including). It is run from the root directly with the following arguments:
+- test_mode: whether or not to write to the test or prod table.  This also controls whether it runs locall (False) or in Outerbounds (True)
+- start_month: the earliest month to include in the backfill
+- end_month: the latest month to include in the backfill.  
+- config: path to the config file from the root of the project.  This is required so that the output table can be checked
+- flow: path to the flow file from the root of the project
+
+An example of the command to run the `ad_tiles_forecast` pipeline for only `2024-02`: `uv run backfill.py  --start_month=2024-02 --end_month=2024-02 --config=moz_forecasting/ad_tiles_forecast/config_2025_planning_baseline.yaml  --flow=moz_forecasting/ad_tiles_forecast/flow.py`
+
+
 ## Development
 ### Tests
 Tests can be found in the `tests` directory and run with `uv run pytest`
@@ -47,3 +58,18 @@ Linting and Testing is run via circleci
 
 ### Docker
 A docker image is built for this project and is used by Outerbounds to run it.  The image is created by the CI and is only accessible to the service account associated with this project, `moz-fx-mfouterbounds-prod-f98d`.  The image is stored in GCR, which the CI interacts through via the `gcp-gcr` orb.  The image is only updated when a commit is made on the `main` branch, which (due to the repo's branch protection rules) will only happen when a PR gets merged.
+
+### Adding new flows
+New flows should be added to a directory under the `moz_forecasting` project directory.  Each flow should read in a config file which should parameterize as much about the flow as possible.  In order to be compatible with the backfill code in `backfill.py`,
+the config should have an `output` section containing `test` and `prod` sections, each specifying the `table`, `dataset` and `project` associated with the output using keys with those names.  For example:
+```
+output:
+  test:
+    project: moz-fx-data-bq-data-science
+    dataset: jsnyder
+    table: amp_rpm_forecasts
+  prod:
+    project: moz-fx-data-shared-prod
+    dataset: ads_derived
+    table: tiles_monthly_v1
+```

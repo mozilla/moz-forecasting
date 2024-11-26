@@ -96,11 +96,11 @@ excluded_advertisers:
 output:
   test:
     project: moz-fx-data-bq-data-science
-    database: jsnyder
+    dataset: jsnyder
     table: amp_rpm_forecasts
   prod:
     project: moz-fx-data-shared-prod
-    database: ads_derived
+    dataset: ads_derived
     table: tiles_monthly_v1
 
 
