@@ -115,11 +115,20 @@ def run_backfill(
     # set up client to check if data exists
     client = bigquery.Client(project="mozdata")
     output_table = get_output_db_from_config(config, test_mode)
+
+    # get products for filtering
+    # in tables where multiple flows write to the same place
+    with open(config, "rb") as infile:
+        config_data = yaml.safe_load(infile)
+    products = config_data["product"]
+    products_string = ",".join([f"'{x}'" for x in products])
     logging.info("Writing to: %s", output_table)
 
     # check to make sure month doesn't exist
     query = f"""SELECT DATE(forecast_month) AS month, COUNT(1) AS numrows
-                    FROM {output_table} GROUP BY 1"""
+                    FROM {output_table} 
+                    WHERE product IN ({products_string})
+                    GROUP BY 1"""
     output_df = client.query(query).to_dataframe()
     output_months = [x.strftime("%Y-%m") for x in output_df.month.values]
     overlap_months = set(output_months) & set(months_to_run)
@@ -148,7 +157,7 @@ def run_backfill(
         else:
             # if running in OB, add info about the container to use
             image_loc = "us-docker.pkg.dev/moz-fx-mfouterbounds-prod-f98d/mfouterbounds-prod/moz-forecasting:latest"  # noqa: E501
-            command.append(f"--with kubernetes:image=kubernetes:image={image_loc}")
+            command.append(f"--with kubernetes:image={image_loc}")
         logging.info(f"Running process: {' '.join(command)}")
         os.system(" ".join(command))
 

@@ -93,11 +93,13 @@ excluded_advertisers:
   - yandex
 
 # output table, should match ad_tiles_forecast
+product:
+  - "mobile tile"
 output:
   test:
     project: moz-fx-data-bq-data-science
     dataset: jsnyder
-    table: amp_rpm_forecasts
+    table: tiles_monthly_v1_test
   prod:
     project: moz-fx-data-shared-prod
     dataset: ads_derived
