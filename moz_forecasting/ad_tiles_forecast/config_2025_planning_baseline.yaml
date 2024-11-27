@@ -169,6 +169,10 @@ new_markets:
       - GB
       - IT
 
+# specify values used for product column
+product:
+  - "tile"
+  - "tile direct sales"
 # specify the output dataset and table
 # to write the data to
 output:

@@ -120,13 +120,17 @@ elgibility:
               )
             ));
 
+# specify values used for product column
+product:
+  - "tile"
+  - "tile direct sales"
 # specify the output dataset and table
 # to write the data to
 output:
   test:
     project: moz-fx-data-bq-data-science
     dataset: jsnyder
-    table: amp_rpm_forecasts
+    table: tiles_monthly_v1_test
   prod:
     project: moz-fx-data-shared-prod
     dataset: ads_derived

@@ -628,6 +628,12 @@ class MobileAdTilesForecastFlow(FlowSpec):
 
         self.write_df = write_df
 
+        if set(self.config_data["product"]) != set(write_df["product"].values):
+            products_in_dataset = ",".join(set(write_df["product"].values))
+            raise ValueError(
+                f"product in config do not match output products: {products_in_dataset}"
+            )
+
         if not self.write or "output" not in self.config_data:
             return
 

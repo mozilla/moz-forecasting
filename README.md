@@ -29,7 +29,7 @@ When you set up outerbounds (see next section), a new metaflow config file is cr
 If you are new to Outerbounds, you'll need to be added to the `revenue` permimeter.  If you do not have access, reach out to Chelsea Troy or another member of the MLOps team. You can see which perimeters you have access to with the `outerbounds perimeter list` command. You will also need to configure metaflow to use Outerbounds.  Instructions for doing this can be found in the [mlops template repo README](github.com/mozilla/mozmlops/tree/main/src/mozmlops/templates#most-importantly-you-need-an-account-with-outerbounds-do-not-make-this-yourself)
 
 Once this is set up, make sure you are in the `revenue` perimeter locally with the command `outerbounds perimeter switch --id revenue`.  The whole pipeline can then be run in Outerbounds from the command line using the `--with kubernetes` flag like:
-```uv run <PATH TO FLOW FILE> run --with kubernetes:image=kubernetes:image=us-docker.pkg.dev/moz-fx-mfouterbounds-prod-f98d/mfouterbounds-prod/moz-forecasting:latest```
+```uv run <PATH TO FLOW FILE> run --with kubernetes:image=us-docker.pkg.dev/moz-fx-mfouterbounds-prod-f98d/mfouterbounds-prod/moz-forecasting:latest```
 
 One nice feature of metaflow is that a specific step can be configured to run in the cloud.  This is done via the `@kubernetes` decorator.  As with the command line argument, the docker image needs to be specified.  It would go before the step decorator and would look somethign like `@kubernetes(image="us-docker.pkg.dev/moz-fx-mfouterbounds-prod-f98d/mfouterbounds-prod/moz-forecasting:latest", cpu=1)`
 
@@ -61,8 +61,14 @@ A docker image is built for this project and is used by Outerbounds to run it.  
 
 ### Adding new flows
 New flows should be added to a directory under the `moz_forecasting` project directory.  Each flow should read in a config file which should parameterize as much about the flow as possible.  In order to be compatible with the backfill code in `backfill.py`,
-the config should have an `output` section containing `test` and `prod` sections, each specifying the `table`, `dataset` and `project` associated with the output using keys with those names.  For example:
+the config should have an `output` section containing `test` and `prod` sections, each specifying the `table`, `dataset` and `project` associated with the output using keys with those names.  The output dataset should have a `product` column that matches the products listed under the `product` key in the config.  For example:
 ```
+# specify values used for product column
+product:
+  - "tile"
+  - "tile direct sales"
+# specify the output dataset and table
+# to write the data to
 output:
   test:
     project: moz-fx-data-bq-data-science
