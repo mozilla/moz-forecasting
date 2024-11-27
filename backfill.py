@@ -126,7 +126,7 @@ def run_backfill(
 
     # check to make sure month doesn't exist
     query = f"""SELECT DATE(forecast_month) AS month, COUNT(1) AS numrows
-                    FROM {output_table} 
+                    FROM {output_table}
                     WHERE product IN ({products_string})
                     GROUP BY 1"""
     output_df = client.query(query).to_dataframe()
