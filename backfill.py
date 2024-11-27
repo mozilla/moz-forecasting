@@ -152,6 +152,8 @@ def run_backfill(
         included_months = ",".join(sorted(overlap_months))
         raise ValueError(f"Data for {included_months} already exists in {output_table}")
 
+    # iterate over months and run pipeline
+    # setting the forecast month to each value in months_to_run
     for month in months_to_run:
         logging.info("Now running %s", month)
 
