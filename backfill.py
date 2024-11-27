@@ -43,13 +43,31 @@ def get_month_list(start_month: str, end_month: str) -> list[str]:
     return month_list
 
 
-def get_output_db_from_config(config_path: str, test_mode: bool) -> str:
-    """Return full output table from config.
+def load_config_data(config_path: str) -> dict:
+    """Load config data from file
 
     Parameters
     ----------
     config_path : str
-        path to config file from root of project
+        config file path
+
+    Returns
+    -------
+    dict
+       dict of config data
+    """
+    with open(config_path, "rb") as infile:
+        config_data = yaml.safe_load(infile)
+    return config_data
+
+
+def get_output_db_from_config(config_data: dict, test_mode: bool) -> str:
+    """Return full output table from config.
+
+    Parameters
+    ----------
+    config_data : doct
+        config data as a dict
     test_mode : bool
         Indicates whether or not to use the test or prod table
 
@@ -58,8 +76,6 @@ def get_output_db_from_config(config_path: str, test_mode: bool) -> str:
     str
         Full output table
     """
-    with open(config_path, "rb") as infile:
-        config_data = yaml.safe_load(infile)
     if test_mode:
         # case where testing locally
         output_info = config_data["output"]["test"]
@@ -114,17 +130,17 @@ def run_backfill(
 
     # set up client to check if data exists
     client = bigquery.Client(project="mozdata")
-    output_table = get_output_db_from_config(config, test_mode)
+    config_data = load_config_data(config)
+    output_table = get_output_db_from_config(config_data, test_mode)
 
     # get products for filtering
     # in tables where multiple flows write to the same place
-    with open(config, "rb") as infile:
-        config_data = yaml.safe_load(infile)
     products = config_data["product"]
     products_string = ",".join([f"'{x}'" for x in products])
     logging.info("Writing to: %s", output_table)
 
     # check to make sure month doesn't exist
+    # accounting for which products are in the config
     query = f"""SELECT DATE(forecast_month) AS month, COUNT(1) AS numrows
                     FROM {output_table}
                     WHERE product IN ({products_string})
