@@ -44,7 +44,7 @@ def get_month_list(start_month: str, end_month: str) -> list[str]:
 
 
 def load_config_data(config_path: str) -> dict:
-    """Load config data from file
+    """Load config data from file.
 
     Parameters
     ----------
