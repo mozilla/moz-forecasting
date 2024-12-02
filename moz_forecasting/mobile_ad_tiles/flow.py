@@ -11,13 +11,14 @@ import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
-from metaflow import FlowSpec, IncludeFile, Parameter, project, step
+from metaflow import FlowSpec, IncludeFile, Parameter, project, step, schedule
 
 # Defaults to the project for Outerbounds Deployment
 # To run locally, set to moz-fx-data-bq-data-science on command line before run command
 GCP_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
 
 
+@schedule(cron="0 5 2 * *")
 @project(name="mobile_ad_tiles_forecast")
 class MobileAdTilesForecastFlow(FlowSpec):
     """Flow for ads tiles forecasting."""

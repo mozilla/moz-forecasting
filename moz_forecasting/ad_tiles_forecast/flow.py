@@ -11,7 +11,7 @@ import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
-from metaflow import FlowSpec, IncludeFile, Parameter, project, step
+from metaflow import FlowSpec, IncludeFile, Parameter, project, step, schedule
 
 GCP_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
 
@@ -103,6 +103,7 @@ def get_direct_allocation_df(
     return direct_allocation_df
 
 
+@schedule(cron="10 * * * *")
 @project(name="ad_tiles_forecast")
 class AdTilesForecastFlow(FlowSpec):
     """Flow for ads tiles forecasting."""
@@ -138,7 +139,7 @@ class AdTilesForecastFlow(FlowSpec):
         # load config
         self.config_data = yaml.safe_load(self.config)
 
-        if self.set_forecast_month is None:
+        if self.set_forecast_month is None or self.set_forecast_month == "null":
             self.first_day_of_current_month = datetime.today().replace(day=1)
         else:
             self.first_day_of_current_month = datetime.strptime(
