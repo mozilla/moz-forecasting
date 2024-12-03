@@ -24,7 +24,7 @@ commands:
     steps:
       - run:
           name: configure ob
-          command: outerbounds configure $OB_CONFIG_KEY
+          command: uv run outerbounds configure $OB_CONFIG_KEY
 
 version: 2.1
 
