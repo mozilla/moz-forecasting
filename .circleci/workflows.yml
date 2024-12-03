@@ -81,7 +81,6 @@ jobs:
           command: |
             uv run moz_forecasting/mobile_ad_tiles/flow.py \
               --production \
-              --namespace production:MobileTiles \
               --with retry \
               --with kubernetes:image=us-docker.pkg.dev/moz-fx-mfouterbounds-prod-f98d/mfouterbounds-prod/moz-forecasting:latest \
               --with environment:vars='{"SCH_METAFLOW_PARAM_WRITE":"true", "SCH_METAFLOW_PARAM_TEST_MODE":"false"}' \
