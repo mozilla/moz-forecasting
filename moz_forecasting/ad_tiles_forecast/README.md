@@ -54,7 +54,7 @@ The meanings of each column are as follows:
    - `forecast_predicted_at` (TIMESTAMP):  Indentifies the DAU forecast used for this forecast
 
 ## Scheduled Production Run
-The monthly update it scheduled to run on the 3rd of every month at midnight UTC.  The deployment can be viewed in Outerbounds [here]()
+The monthly update it scheduled to run 1 AM UTC on the 3rd of every month. The deployment can be viewed in Outerbounds [here](https://ui.desertowl.obp.outerbounds.com/dashboard/flows/p/revenue/adtilesforecast.prod.adtilesforecastflow).  The deployment is updated automatically via the circleci job `update_desktop_tiles_scheduled_job` whenever a commit is made into main.
 
 ## History and Changes
 This pipeline was derived from [this notebook](https://colab.research.google.com/drive/1qOsjCY8G6mM91FU3ZiOfsSZJRi5CpLOj).  The only major change is that the invenetory is now obtained from a derived table rather than from looker, the latter method is described in the notebook.  Other non-functional changes were made for readability and efficiancy.  The outputs of the flow were validated against the notebook outputs to be accurate to within 3%.
