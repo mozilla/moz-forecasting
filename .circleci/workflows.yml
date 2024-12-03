@@ -21,8 +21,6 @@ commands:
           command: echo $PATH
       - run:  uv sync --frozen
 
-
-
 version: 2.1
 
 orbs:
@@ -32,6 +30,14 @@ executors:
   ubuntu-machine-executor:
     machine:
       image: ubuntu-2004:current
+
+parameters:
+  update-desktop-tiles-scheduled-job:
+    type: boolean
+    default: false
+  update-mobile-tiles-scheduled-job:
+    type: boolean
+    default: false
 
 jobs:
   pytest:
@@ -49,7 +55,37 @@ jobs:
       - uv_setup
       - run: uvx ruff@0.6.5 check
       - run: uvx ruff@0.6.5 format
-
+  update_desktop_tiles_scheduled_job:
+    docker:
+       - image: cimg/python:3.10
+    steps:
+      - checkout
+      - uv_setup
+      - run: 
+          name: argo create
+          command: |
+            uv run moz_forecasting/ad_tiles_forecast/flow.py \
+              --production \
+              --with retry \
+              --with kubernetes:image=us-docker.pkg.dev/moz-fx-mfouterbounds-prod-f98d/mfouterbounds-prod/moz-forecasting:latest \
+              --with environment:vars='{"SCH_METAFLOW_PARAM_WRITE":"true", "SCH_METAFLOW_PARAM_TEST_MODE":"false"}' \
+              argo-workflows create
+  update_mobile_tiles_scheduled_job:
+    docker:
+       - image: cimg/python:3.10
+    steps:
+      - checkout
+      - uv_setup
+      - run: 
+          name: argo create
+          command: |
+            uv run moz_forecasting/mobile_ad_tiles/flow.py \
+              --production \
+              --namespace production:MobileTiles \
+              --with retry \
+              --with kubernetes:image=us-docker.pkg.dev/moz-fx-mfouterbounds-prod-f98d/mfouterbounds-prod/moz-forecasting:latest \
+              --with environment:vars='{"SCH_METAFLOW_PARAM_WRITE":"true", "SCH_METAFLOW_PARAM_TEST_MODE":"false"}' \
+              argo-workflows create
 workflows:
   version: 2.1
   build:
@@ -69,3 +105,15 @@ workflows:
            branches:
              only:
                - main
+  update_outerbounds_prod_deployments:
+    jobs:
+      - update_desktop_tiles_scheduled_job:
+         filters:
+           branches:
+             only:
+               - scheduling  ## TEST VALUE
+      - update_mobile_tiles_scheduled_job:
+         filters:
+           branches:
+             only:
+               - scheduling  ## TEST VALUE
