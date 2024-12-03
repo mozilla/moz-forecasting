@@ -111,9 +111,9 @@ workflows:
          filters:
            branches:
              only:
-               - main
+               - scheduling # REVERT BEFORE MERGE
       - update_mobile_tiles_scheduled_job:
          filters:
            branches:
              only:
-               - main
+               - scheduling # REVERT BEFORE MERGE
