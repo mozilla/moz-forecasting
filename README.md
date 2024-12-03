@@ -79,3 +79,6 @@ output:
     dataset: ads_derived
     table: tiles_monthly_v1
 ```
+
+### Scheduling
+Scheduling can be done through [argo workflows](https://docs.outerbounds.com/schedule-flow-on-argo/).  Note that there is a limit on the length of the workflow of 64 characters.  The name of the workfow is printed when running `argo-workflows create` or `argo-workflows trigger`.  An easy way to reduce the length is the change your username, which can be done by setting the `METAFLOW_USER` environment variable.  By default a workflow will be created in a user's personal branch.  Note that prod runs can only be executed in the `prod` branch.

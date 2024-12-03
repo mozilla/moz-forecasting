@@ -19,9 +19,12 @@ commands:
       - run:
           name: install dependencies
           command: echo $PATH
-      - run:  uv sync --frozen
-
-
+      - run:  uv sync --frozen --no-dev
+  ob_setup:
+    steps:
+      - run:
+          name: configure ob
+          command: uv run --no-dev outerbounds configure $OB_CONFIG_KEY
 
 version: 2.1
 
@@ -49,7 +52,40 @@ jobs:
       - uv_setup
       - run: uvx ruff@0.6.5 check
       - run: uvx ruff@0.6.5 format
-
+  update_desktop_tiles_scheduled_job:
+    docker:
+       - image: cimg/python:3.10
+    steps:
+      - checkout
+      - uv_setup
+      - ob_setup
+      - run: 
+          name: argo create
+          command: |
+            uv run --no-dev moz_forecasting/ad_tiles_forecast/flow.py \
+              --production \
+              --with retry \
+              --with kubernetes:image=us-docker.pkg.dev/moz-fx-mfouterbounds-prod-f98d/mfouterbounds-prod/moz-forecasting:latest \
+              --with environment:vars='{"SCH_METAFLOW_PARAM_WRITE":"true", "SCH_METAFLOW_PARAM_TEST_MODE":"false"}' \
+              argo-workflows create\
+              --authorize $OB_DESKTOP_TILES_ARGO_TOKEN
+  update_mobile_tiles_scheduled_job:
+    docker:
+       - image: cimg/python:3.10
+    steps:
+      - checkout
+      - uv_setup
+      - ob_setup
+      - run: 
+          name: argo create
+          command: |
+            uv run --no-dev moz_forecasting/mobile_ad_tiles/flow.py \
+              --production \
+              --with retry \
+              --with kubernetes:image=us-docker.pkg.dev/moz-fx-mfouterbounds-prod-f98d/mfouterbounds-prod/moz-forecasting:latest \
+              --with environment:vars='{"SCH_METAFLOW_PARAM_WRITE":"true", "SCH_METAFLOW_PARAM_TEST_MODE":"false"}' \
+              argo-workflows create \
+              --authorize $OB_MOBILE_TILES_ARGO_TOKEN
 workflows:
   version: 2.1
   build:
@@ -65,6 +101,18 @@ workflows:
          registry-url: us-docker.pkg.dev
          repository: mfouterbounds-prod
          use_oidc: true
+         filters:
+           branches:
+             only:
+               - main
+  update_outerbounds_prod_deployments:
+    jobs:
+      - update_desktop_tiles_scheduled_job:
+         filters:
+           branches:
+             only:
+               - main
+      - update_mobile_tiles_scheduled_job:
          filters:
            branches:
              only:

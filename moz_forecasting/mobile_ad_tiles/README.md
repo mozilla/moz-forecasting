@@ -46,6 +46,8 @@ The meanings of each column are as follows:
    - `pricing_model` (STRING): Indicates whether clicks or impressions are used in the pricing model
    - `forecast_predicted_at` (TIMESTAMP):  Indentifies the DAU forecast used for this forecast
 
+## Scheduled Production Run
+The monthly update it scheduled to run 1 AM UTC on the 3rd of every month. The deployment can be viewed in Outerbounds [here](https://ui.desertowl.obp.outerbounds.com/dashboard/flows/p/revenue/mobileadtilesforecast.prod.mobileadtilesforecastflow).  The deployment is updated automatically via the circleci job `update_mobile_tiles_scheduled_job` whenever a commit is made into main.
 
 
 ## History and Changes

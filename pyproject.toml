@@ -15,7 +15,6 @@ dependencies = [
     "gspread>=6.1.2",
     "ipykernel>=6.29.5",
     "matplotlib>=3.9.2",
-    "metaflow>=2.12.19",
     "numpy==1.26",
     "outerbounds[gcp]>=0.3.99",
     "pandas>=2.2.2",
@@ -53,3 +52,8 @@ select = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
+
+[tool.uv]
+dev-dependencies = [
+    "metaflow>=2.12.33",
+]

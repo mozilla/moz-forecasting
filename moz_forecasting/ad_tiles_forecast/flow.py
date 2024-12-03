@@ -3,6 +3,7 @@
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
+import logging
 import os
 from datetime import datetime, timedelta
 
@@ -11,9 +12,12 @@ import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
-from metaflow import FlowSpec, IncludeFile, Parameter, project, step
+from metaflow import FlowSpec, IncludeFile, Parameter, current, project, schedule, step
 
 GCP_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
+
+# configure logging
+logging.basicConfig(level=logging.INFO)
 
 
 def get_direct_allocation_df(
@@ -103,6 +107,8 @@ def get_direct_allocation_df(
     return direct_allocation_df
 
 
+# CRON here means will run at 1 AM UTC on the 3rd of every month
+@schedule(cron="0 1 3 * ? *", timezone="Etc/UTC")
 @project(name="ad_tiles_forecast")
 class AdTilesForecastFlow(FlowSpec):
     """Flow for ads tiles forecasting."""
@@ -114,13 +120,15 @@ class AdTilesForecastFlow(FlowSpec):
         default="moz_forecasting/ad_tiles_forecast/config_2025_planning_stretch.yaml",
     )
 
-    test_mode = Parameter(
+    test_mode_param = Parameter(
         name="test_mode",
         help="indicates whether or not run should affect production",
-        default=True,
+        default="true",
     )
 
-    write = Parameter(name="write", help="whether or not to write to BQ", default=False)
+    write_param = Parameter(
+        name="write", help="whether or not to write to BQ", default="false"
+    )
 
     set_forecast_month = Parameter(
         name="forecast_month",
@@ -135,15 +143,36 @@ class AdTilesForecastFlow(FlowSpec):
 
         You can use it for collecting/preprocessing data or other setup tasks.
         """
+        # for scheduled flows set write with env var SCH_METAFLOW_PARAM_WRITE
+        write_envar = os.environ.get("SCH_METAFLOW_PARAM_WRITE")
+        if write_envar is not None:
+            self.write = write_envar
+        else:
+            self.write = self.write_param
+        # convert to boolean because parameters are passed as strings
+        self.write = self.write.lower() == "true"
+        logging.info(f"write set to: {self.write}")
+
+        # for scheduled flows set test_mode with env var SCH_METAFLOW_PARAM_TEST_MODE
         # load config
         self.config_data = yaml.safe_load(self.config)
+        test_mode_envar = os.environ.get("SCH_METAFLOW_PARAM_TEST_MODE")
+        if test_mode_envar is not None:
+            self.test_mode = test_mode_envar
+        else:
+            self.test_mode = self.test_mode_param
+        # convert to boolean because parameters are passed as strings
+        self.test_mode = self.test_mode.lower() == "true"
+        logging.info(f"test_mode set to: {self.test_mode}")
 
-        if self.set_forecast_month is None:
+        logging.info(f"Forecast month input as: {self.set_forecast_month}")
+        if self.set_forecast_month or self.set_forecast_month == "null":
             self.first_day_of_current_month = datetime.today().replace(day=1)
         else:
             self.first_day_of_current_month = datetime.strptime(
                 self.set_forecast_month + "-01", "%Y-%m-%d"
             )
+        logging.info(f"forecast month set to: {self.first_day_of_current_month}")
         last_day_of_previous_month = self.first_day_of_current_month - timedelta(days=1)
         first_day_of_previous_month = last_day_of_previous_month.replace(day=1)
 
@@ -166,6 +195,11 @@ class AdTilesForecastFlow(FlowSpec):
         self.newtab_aggregates_table = (
             "mozdata.telemetry.newtab_clients_daily_aggregates"
         )
+
+        if self.write and not self.test_mode and not current.is_production:
+            # case where trying to write in production  mode
+            # but branch is not production branch
+            raise ValueError("Trying to write in non-production branch")
 
         self.next(self.get_dau_forecast_by_country)
 
@@ -833,20 +867,22 @@ class AdTilesForecastFlow(FlowSpec):
                 f"product in config do not match output products: {products_in_dataset}"
             )
 
-        if not self.write or "output" not in self.config_data:
+        if not self.write or ("output" not in self.config_data):
+            logging.info("Write parameter is false, exiting now")
             return
 
-        if self.test_mode and GCP_PROJECT_NAME != "moz-fx-mfouterbounds-prod-f98d":
+        if self.test_mode:
             # case where testing locally
             output_info = self.config_data["output"]["test"]
-        elif self.test_mode and GCP_PROJECT_NAME == "moz-fx-mfouterbounds-prod-f98d":
-            # case where testing in outerbounds, just want to exit
-            return
-        else:
+        elif current.is_production:
             output_info = self.config_data["output"]["prod"]
+        else:
+            # case where test_mode is false but current.is_production False
+            raise ValueError("Trying to write in non-production branch")
         target_table = (
             f"{output_info['project']}.{output_info['dataset']}.{output_info['table']}"
         )
+        logging.info(f"Writing to: {target_table}")
         schema = [
             bigquery.SchemaField("country_code", "STRING"),
             bigquery.SchemaField("submission_month", "DATETIME"),
@@ -871,8 +907,6 @@ class AdTilesForecastFlow(FlowSpec):
         )
 
         client = bigquery.Client(project=GCP_PROJECT_NAME)
-        print(f"writing to: {target_table}")
-
         client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
 
 

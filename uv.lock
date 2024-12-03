@@ -1343,15 +1343,15 @@ wheels = [
 
 [[package]]
 name = "metaflow"
-version = "2.12.31"
+version = "2.12.33"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "boto3" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ff/fe/a2008af4850648ec5419f0cea6097c0acd2a9758a91ed208fd1d14541e2c/metaflow-2.12.31.tar.gz", hash = "sha256:f2ac21ee55e066cd5cf0e7659a69487491fcc0e9c4143e41d3dba86ff967d0fc", size = 1294575 }
+sdist = { url = "https://files.pythonhosted.org/packages/bb/f1/e1625557c1f1ad1bc1dc2603e7343231651e90b197584a99f15f1bbbd42d/metaflow-2.12.33.tar.gz", hash = "sha256:b03ed48eaf4ec90e0dc429ff27925d70027eccad8988bc39e2045ac9ac9ba96d", size = 1293273 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ca/8a/e57b1e817859556c6d61ce8979dc36b78cdd68d8470d7b589947730c6876/metaflow-2.12.31-py2.py3-none-any.whl", hash = "sha256:fa2e64599ca217d34fc23132e8c6c9c62fe3d97c3a2a010a94fbd75c6130fb59", size = 1440061 },
+    { url = "https://files.pythonhosted.org/packages/fc/49/28471e089ab802654e179b8b35a03b0012203667b06b42b4f40359ce5318/metaflow-2.12.33-py2.py3-none-any.whl", hash = "sha256:9aab2e453b7853d1a3a1d82cd02ffeb0619180ca089bdc23b7186bdcf1829f58", size = 1438740 },
 ]
 
 [[package]]
@@ -1374,7 +1374,6 @@ dependencies = [
     { name = "gspread" },
     { name = "ipykernel" },
     { name = "matplotlib" },
-    { name = "metaflow" },
     { name = "numpy" },
     { name = "outerbounds", extra = ["gcp"] },
     { name = "pandas" },
@@ -1385,6 +1384,11 @@ dependencies = [
     { name = "u8darts", extra = ["notorch"] },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "metaflow" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=8.1.7" },
@@ -1393,7 +1397,6 @@ requires-dist = [
     { name = "gspread", specifier = ">=6.1.2" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "matplotlib", specifier = ">=3.9.2" },
-    { name = "metaflow", specifier = ">=2.12.19" },
     { name = "numpy", specifier = "==1.26" },
     { name = "outerbounds", extras = ["gcp"], specifier = ">=0.3.99" },
     { name = "pandas", specifier = ">=2.2.2" },
@@ -1403,6 +1406,9 @@ requires-dist = [
     { name = "scikit-learn", specifier = ">=1.5.2" },
     { name = "u8darts", extras = ["notorch"], specifier = ">=0.31.0" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "metaflow", specifier = ">=2.12.33" }]
 
 [[package]]
 name = "nest-asyncio"
