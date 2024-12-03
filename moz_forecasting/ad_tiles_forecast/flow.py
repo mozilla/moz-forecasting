@@ -164,7 +164,12 @@ class AdTilesForecastFlow(FlowSpec):
         self.test_mode = self.test_mode.lower() == "true"
         logging.info(f"test_mode set to: {self.test_mode}")
 
-        if self.set_forecast_month is None or self.set_forecast_month == "null":
+        logging.info(f"Forecast month input as: {self.set_forecast_month}")
+        if (
+            self.set_forecast_month is None
+            or self.set_forecast_month == "null"
+            or self.set_forecast_month == ""
+        ):
             self.first_day_of_current_month = datetime.today().replace(day=1)
         else:
             self.first_day_of_current_month = datetime.strptime(
