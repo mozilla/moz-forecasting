@@ -1342,19 +1342,6 @@ wheels = [
 ]
 
 [[package]]
-name = "metaflow"
-version = "2.12.31"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "boto3" },
-    { name = "requests" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ff/fe/a2008af4850648ec5419f0cea6097c0acd2a9758a91ed208fd1d14541e2c/metaflow-2.12.31.tar.gz", hash = "sha256:f2ac21ee55e066cd5cf0e7659a69487491fcc0e9c4143e41d3dba86ff967d0fc", size = 1294575 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ca/8a/e57b1e817859556c6d61ce8979dc36b78cdd68d8470d7b589947730c6876/metaflow-2.12.31-py2.py3-none-any.whl", hash = "sha256:fa2e64599ca217d34fc23132e8c6c9c62fe3d97c3a2a010a94fbd75c6130fb59", size = 1440061 },
-]
-
-[[package]]
 name = "metaflow-checkpoint"
 version = "0.1.4"
 source = { registry = "https://pypi.org/simple" }
@@ -1374,7 +1361,6 @@ dependencies = [
     { name = "gspread" },
     { name = "ipykernel" },
     { name = "matplotlib" },
-    { name = "metaflow" },
     { name = "numpy" },
     { name = "outerbounds", extra = ["gcp"] },
     { name = "pandas" },
@@ -1393,7 +1379,6 @@ requires-dist = [
     { name = "gspread", specifier = ">=6.1.2" },
     { name = "ipykernel", specifier = ">=6.29.5" },
     { name = "matplotlib", specifier = ">=3.9.2" },
-    { name = "metaflow", specifier = ">=2.12.19" },
     { name = "numpy", specifier = "==1.26" },
     { name = "outerbounds", extras = ["gcp"], specifier = ">=0.3.99" },
     { name = "pandas", specifier = ">=2.2.2" },
@@ -1997,8 +1982,6 @@ version = "6.1.0"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/26/10/2a30b13c61e7cf937f4adf90710776b7918ed0a9c434e2c38224732af310/psutil-6.1.0.tar.gz", hash = "sha256:353815f59a7f64cdaca1c0307ee13558a0512f6db064e92fe833784f08539c7a", size = 508565 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/2b/f4dea5d993d9cd22ad958eea828a41d5d225556123d372f02547c29c4f97/psutil-6.1.0-cp27-none-win32.whl", hash = "sha256:9118f27452b70bb1d9ab3198c1f626c2499384935aaf55388211ad982611407e", size = 246648 },
-    { url = "https://files.pythonhosted.org/packages/9f/14/4aa97a7f2e0ac33a050d990ab31686d651ae4ef8c86661fef067f00437b9/psutil-6.1.0-cp27-none-win_amd64.whl", hash = "sha256:a8506f6119cff7015678e2bce904a4da21025cc70ad283a53b099e7620061d85", size = 249905 },
     { url = "https://files.pythonhosted.org/packages/01/9e/8be43078a171381953cfee33c07c0d628594b5dbfc5157847b85022c2c1b/psutil-6.1.0-cp36-abi3-macosx_10_9_x86_64.whl", hash = "sha256:6e2dcd475ce8b80522e51d923d10c7871e45f20918e027ab682f94f1c6351688", size = 247762 },
     { url = "https://files.pythonhosted.org/packages/1d/cb/313e80644ea407f04f6602a9e23096540d9dc1878755f3952ea8d3d104be/psutil-6.1.0-cp36-abi3-macosx_11_0_arm64.whl", hash = "sha256:0895b8414afafc526712c498bd9de2b063deaac4021a3b3c34566283464aff8e", size = 248777 },
     { url = "https://files.pythonhosted.org/packages/65/8e/bcbe2025c587b5d703369b6a75b65d41d1367553da6e3f788aff91eaf5bd/psutil-6.1.0-cp36-abi3-manylinux_2_12_i686.manylinux2010_i686.manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:9dcbfce5d89f1d1f2546a2090f4fcf87c7f669d1d90aacb7d7582addece9fb38", size = 284259 },
