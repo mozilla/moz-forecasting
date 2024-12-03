@@ -67,7 +67,8 @@ jobs:
               --with retry \
               --with kubernetes:image=us-docker.pkg.dev/moz-fx-mfouterbounds-prod-f98d/mfouterbounds-prod/moz-forecasting:latest \
               --with environment:vars='{"SCH_METAFLOW_PARAM_WRITE":"true", "SCH_METAFLOW_PARAM_TEST_MODE":"false"}' \
-              argo-workflows create
+              argo-workflows create\
+              --authorize $OB_DESKTOP_TILES_ARGO_TOKEN
   update_mobile_tiles_scheduled_job:
     docker:
        - image: cimg/python:3.10
@@ -83,7 +84,8 @@ jobs:
               --with retry \
               --with kubernetes:image=us-docker.pkg.dev/moz-fx-mfouterbounds-prod-f98d/mfouterbounds-prod/moz-forecasting:latest \
               --with environment:vars='{"SCH_METAFLOW_PARAM_WRITE":"true", "SCH_METAFLOW_PARAM_TEST_MODE":"false"}' \
-              argo-workflows create
+              argo-workflows create \
+              --authorize $OB_MOBILE_TILES_ARGO_TOKEN
 workflows:
   version: 2.1
   build:
