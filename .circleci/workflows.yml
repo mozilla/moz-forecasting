@@ -20,6 +20,11 @@ commands:
           name: install dependencies
           command: echo $PATH
       - run:  uv sync --frozen
+  ob_setup:
+    steps:
+      - run:
+          name: configure ob
+          command: outerbounds configure $OB_CONFIG_KEY
 
 version: 2.1
 
@@ -30,14 +35,6 @@ executors:
   ubuntu-machine-executor:
     machine:
       image: ubuntu-2004:current
-
-parameters:
-  update-desktop-tiles-scheduled-job:
-    type: boolean
-    default: false
-  update-mobile-tiles-scheduled-job:
-    type: boolean
-    default: false
 
 jobs:
   pytest:
@@ -61,6 +58,7 @@ jobs:
     steps:
       - checkout
       - uv_setup
+      - ob_setup
       - run: 
           name: argo create
           command: |
@@ -76,6 +74,7 @@ jobs:
     steps:
       - checkout
       - uv_setup
+      - ob_setup
       - run: 
           name: argo create
           command: |
