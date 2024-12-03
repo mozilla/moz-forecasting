@@ -22,6 +22,7 @@ GCP_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod
 logging.basicConfig(level=logging.INFO)
 
 
+# CRON here means will run at 1 AM UTC on the 3rd of every month
 @schedule(cron="0 1 3 * ? *", timezone="Etc/UTC")
 @project(name="mobile_ad_tiles_forecast")
 class MobileAdTilesForecastFlow(FlowSpec):
@@ -34,14 +35,14 @@ class MobileAdTilesForecastFlow(FlowSpec):
         default="moz_forecasting/mobile_ad_tiles/config.yaml",
     )
 
-    test_mode = Parameter(
+    test_mode_param = Parameter(
         name="test_mode",
         help="indicates whether or not run should affect production",
-        default=True,
+        default="true",
     )
 
     write_param = Parameter(
-        name="write", help="whether or not to write to BQ", default=False
+        name="write", help="whether or not to write to BQ", default="false"
     )
 
     set_forecast_month = Parameter(
@@ -84,11 +85,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         self.excluded_advertisers = self.config_data["excluded_advertisers"]
 
         logging.info(f"Forecast month input as: {self.set_forecast_month}")
-        if (
-            self.set_forecast_month is None
-            or self.set_forecast_month == "null"
-            or self.set_forecast_month == ""
-        ):
+        if self.set_forecast_month or self.set_forecast_month == "":
             self.first_day_of_current_month = datetime.today().replace(day=1)
         else:
             self.first_day_of_current_month = datetime.strptime(
