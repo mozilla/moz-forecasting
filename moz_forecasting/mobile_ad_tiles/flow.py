@@ -40,7 +40,9 @@ class MobileAdTilesForecastFlow(FlowSpec):
         default=True,
     )
 
-    write = Parameter(name="write", help="whether or not to write to BQ", default=False)
+    write_param = Parameter(
+        name="write", help="whether or not to write to BQ", default=False
+    )
 
     set_forecast_month = Parameter(
         name="forecast_month",
