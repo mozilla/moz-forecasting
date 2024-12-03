@@ -3,17 +3,16 @@
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
+import logging
 import os
 from datetime import datetime, timedelta
-import logging
-
 
 import numpy as np
 import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
-from metaflow import FlowSpec, IncludeFile, Parameter, project, schedule, step, current
+from metaflow import FlowSpec, IncludeFile, Parameter, current, project, schedule, step
 
 GCP_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
 
@@ -143,7 +142,6 @@ class AdTilesForecastFlow(FlowSpec):
 
         You can use it for collecting/preprocessing data or other setup tasks.
         """
-
         # for scheduled flows set write with env var SCH_METAFLOW_PARAM_WRITE
         write_envar = os.environ.get("SCH_METAFLOW_PARAM_WRITE")
         if write_envar is not None:

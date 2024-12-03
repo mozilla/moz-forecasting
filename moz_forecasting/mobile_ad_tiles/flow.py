@@ -3,16 +3,16 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
+import logging
 import os
 from datetime import datetime, timedelta
-import logging
 
 import numpy as np
 import pandas as pd
 import yaml
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
-from metaflow import FlowSpec, IncludeFile, Parameter, project, schedule, step, current
+from metaflow import FlowSpec, IncludeFile, Parameter, current, project, schedule, step
 
 # Defaults to the project for Outerbounds Deployment
 # To run locally, set to moz-fx-data-bq-data-science on command line before run command
