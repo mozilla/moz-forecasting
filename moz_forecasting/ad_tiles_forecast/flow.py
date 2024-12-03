@@ -170,6 +170,9 @@ class AdTilesForecastFlow(FlowSpec):
             self.first_day_of_current_month = datetime.strptime(
                 self.set_forecast_month + "-01", "%Y-%m-%d"
             )
+        logging.info(
+            f"forecast month set to: {self.set_forecast_month.strftime("%Y-%m")}"
+        )
         last_day_of_previous_month = self.first_day_of_current_month - timedelta(days=1)
         first_day_of_previous_month = last_day_of_previous_month.replace(day=1)
 
