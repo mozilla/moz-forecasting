@@ -19,12 +19,12 @@ commands:
       - run:
           name: install dependencies
           command: echo $PATH
-      - run:  uv sync --frozen
+      - run:  uv sync --frozen --no-dev
   ob_setup:
     steps:
       - run:
           name: configure ob
-          command: uv run outerbounds configure $OB_CONFIG_KEY
+          command: uv run --no-dev outerbounds configure $OB_CONFIG_KEY
 
 version: 2.1
 
@@ -62,7 +62,7 @@ jobs:
       - run: 
           name: argo create
           command: |
-            uv run moz_forecasting/ad_tiles_forecast/flow.py \
+            uv run --no-dev moz_forecasting/ad_tiles_forecast/flow.py \
               --production \
               --with retry \
               --with kubernetes:image=us-docker.pkg.dev/moz-fx-mfouterbounds-prod-f98d/mfouterbounds-prod/moz-forecasting:latest \
@@ -78,7 +78,7 @@ jobs:
       - run: 
           name: argo create
           command: |
-            uv run moz_forecasting/mobile_ad_tiles/flow.py \
+            uv run --no-dev moz_forecasting/mobile_ad_tiles/flow.py \
               --production \
               --with retry \
               --with kubernetes:image=us-docker.pkg.dev/moz-fx-mfouterbounds-prod-f98d/mfouterbounds-prod/moz-forecasting:latest \

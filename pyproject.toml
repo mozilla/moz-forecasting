@@ -52,3 +52,8 @@ select = [
 
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
+
+[tool.uv]
+dev-dependencies = [
+    "metaflow>=2.12.33",
+]
