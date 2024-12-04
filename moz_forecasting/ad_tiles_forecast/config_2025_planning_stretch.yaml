@@ -32,7 +32,7 @@ CPM:
     tiles_1_and_2: 0.363
     tile3: 0.132
   JP:
-    tiles_1_and_2: 0.022
+    tiles_1_and_2: 0.06
     tile3: 0.0072
   MX:
     tiles_1_and_2: 0.209
@@ -41,22 +41,22 @@ CPM:
     tiles_1_and_2: 0.627
     tile3: 0.220
   BE: 
-    tiles_1_and_2: 0.050
+    tiles_1_and_2: 0.15
     tile3: 0.016
   AT:
-    tiles_1_and_2: 0.050
+    tiles_1_and_2: 0.17
     tile3: 0.016
   PL:
     tiles_1_and_2: 0.050
     tile3: 0.016
   NL:
-    tiles_1_and_2: 0.050
+    tiles_1_and_2: 0.22
     tile3: 0.016
   SE: 
     tiles_1_and_2: 0.050
     tile3: 0.016
   CH: 
-    tiles_1_and_2: 0.050
+    tiles_1_and_2: 0.25
     tile3: 0.016 #switzerland
   FI:  # stretch EU countries start here
     tiles_1_and_2: 0.050
