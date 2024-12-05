@@ -353,19 +353,18 @@ class NativeForecastFlow(FlowSpec):
 
         query = f"""SELECT
                         (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
-                        country_code as country,
-                            COALESCE(SUM(
-                            IF(pocket_enabled AND pocket_sponsored_stories_enabled,
-                            newtab_visit_count,
-                            0)), 0) AS newtab_impressions_with_spocs,
+                        country,
+                        position,
+                        sum(impressions) as spoc_impressions,
                         FROM `{self.spoc_impressions_table}`
                         WHERE
                         submission_date >= '{observed_start_date}'
                         AND submission_date <= '{observed_end_date}'
                         AND country_code IN ({countries_string})
-                        AND browser_name = 'Firefox Desktop'
+                        AND product = "SPOCs"
+                        AND surface="desktop"
                         GROUP BY
-                        1,2"""
+                        submission_month, country, position"""
 
         client = bigquery.Client(project=GCP_PROJECT_NAME)
         query_job = client.query(query)
