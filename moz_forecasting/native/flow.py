@@ -85,6 +85,8 @@ class NativeForecastFlow(FlowSpec):
 
         self.newtab_clients_table = "mozdata.telemetry.newtab_clients_daily"
 
+        self.spoc_impressions_table = "mozdata.ads.consolidated_ad_metrics_daily_pt"
+
         self.next(self.get_country_availability)
 
     @step
@@ -341,6 +343,33 @@ class NativeForecastFlow(FlowSpec):
             .mean()
         )
         self.next(self.get_forecast)
+
+    @step
+    def get_spoc_impressions(self):
+        """Get ratio of spoc impressions by qualified newtab impressions"""
+        observed_end_date = self.observed_end_date.strftime("%Y-%m-%d")
+        observed_start_date = self.observed_start_date.strftime("%Y-%m-%d")
+        countries_string = ",".join(f"'{el}'" for el in self.available_countries)
+
+        query = f"""SELECT
+                        (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
+                        country_code as country,
+                            COALESCE(SUM(
+                            IF(pocket_enabled AND pocket_sponsored_stories_enabled,
+                            newtab_visit_count,
+                            0)), 0) AS newtab_impressions_with_spocs,
+                        FROM `{self.spoc_impressions_table}`
+                        WHERE
+                        submission_date >= '{observed_start_date}'
+                        AND submission_date <= '{observed_end_date}'
+                        AND country_code IN ({countries_string})
+                        AND browser_name = 'Firefox Desktop'
+                        GROUP BY
+                        1,2"""
+
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
+        query_job = client.query(query)
+        newtab_impressions_by_country_by_month = query_job.to_dataframe()
 
     @step
     def get_forecast(self):
