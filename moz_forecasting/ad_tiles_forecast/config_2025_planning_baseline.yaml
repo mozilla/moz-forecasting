@@ -6,13 +6,13 @@ observed_months_fill_rate: 4
 CPM:
   AU: 
     tiles_1_and_2: 0.099
-    tile3: .077
+    tile3: 0
   BR: 
     tiles_1_and_2: 0.066
-    tile3: 0.019
+    tile3: 0
   CA: 
     tiles_1_and_2: 0.330
-    tile3: 0.299
+    tile3: 0
   DE: 
     tiles_1_and_2: 0.528
     tile3: 0.187
@@ -32,32 +32,29 @@ CPM:
     tiles_1_and_2: 0.363
     tile3: 0.132
   JP:
-    tiles_1_and_2: 0.022
-    tile3: 0.0072
+    tiles_1_and_2: 0.02
+    tile3: 0
   MX:
     tiles_1_and_2: 0.209
-    tile3: 0.0649
+    tile3: 0
   US: 
     tiles_1_and_2: 0.627
     tile3: 0.220
   BE: 
     tiles_1_and_2: 0.050
-    tile3: 0.016
+    tile3: 0
   AT:
-    tiles_1_and_2: 0.050
-    tile3: 0.016
+    tiles_1_and_2: 0.05
+    tile3: 0
   PL:
     tiles_1_and_2: 0.050
-    tile3: 0.016
+    tile3: 0
   NL:
-    tiles_1_and_2: 0.050
-    tile3: 0.016
-  SE: 
-    tiles_1_and_2: 0.050
-    tile3: 0.016
+    tiles_1_and_2: 0.05
+    tile3: 0
   CH: 
     tiles_1_and_2: 0.050
-    tile3: 0.016 #switzerland
+    tile3: 0 #switzerland
 
 
 # elgilibity rules for different product/platform combos

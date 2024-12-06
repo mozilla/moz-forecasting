@@ -6,13 +6,13 @@ observed_months_fill_rate: 4
 CPM:
   AU: 
     tiles_1_and_2: 0.099
-    tile3: .077
+    tile3: 0
   BR: 
     tiles_1_and_2: 0.066
-    tile3: 0.019
+    tile3: 0
   CA: 
     tiles_1_and_2: 0.330
-    tile3: 0.299
+    tile3: 0
   DE: 
     tiles_1_and_2: 0.528
     tile3: 0.187
@@ -32,89 +32,92 @@ CPM:
     tiles_1_and_2: 0.363
     tile3: 0.132
   JP:
-    tiles_1_and_2: 0.022
-    tile3: 0.0072
+    tiles_1_and_2: 0.06
+    tile3: 0
   MX:
     tiles_1_and_2: 0.209
-    tile3: 0.0649
+    tile3: 0
   US: 
     tiles_1_and_2: 0.627
     tile3: 0.220
   BE: 
     tiles_1_and_2: 0.050
-    tile3: 0.016
+    tile3: 0
   AT:
-    tiles_1_and_2: 0.050
-    tile3: 0.016
+    tiles_1_and_2: 0.17
+    tile3: 0
   PL:
     tiles_1_and_2: 0.050
-    tile3: 0.016
+    tile3: 0
   NL:
-    tiles_1_and_2: 0.050
-    tile3: 0.016
-  SE: 
-    tiles_1_and_2: 0.050
-    tile3: 0.016
+    tiles_1_and_2: 0.22
+    tile3: 0
+  LU:
+    tiles_1_and_2: 0.05
+    tile3: 0
+  SE:
+    tiles_1_and_2: 0.05
+    tile3: 0
   CH: 
-    tiles_1_and_2: 0.050
-    tile3: 0.016 #switzerland
+    tiles_1_and_2: 0.250
+    tile3: 0 #switzerland
   FI:  # stretch EU countries start here
     tiles_1_and_2: 0.050
-    tile3: 0.016 
+    tile3: 0
   NO:
     tiles_1_and_2: 0.050
-    tile3: 0.016 
+    tile3: 0 
   PT:
     tiles_1_and_2: 0.050
-    tile3: 0.016 
+    tile3: 0 
   GR:
     tiles_1_and_2: 0.050
-    tile3: 0.016  
+    tile3: 0  
   CZ:
     tiles_1_and_2: 0.050
-    tile3: 0.016 
+    tile3: 0 
   HU:
     tiles_1_and_2: 0.050
-    tile3: 0.016 
+    tile3: 0 
   DK:
     tiles_1_and_2: 0.050
-    tile3: 0.016 
+    tile3: 0 
   TR:
     tiles_1_and_2: 0.050
-    tile3: 0.016 
+    tile3: 0 
   KR: # Asia/Pacific stretch countries start here
     tiles_1_and_2: 0.050
-    tile3: 0.016 
+    tile3: 0 
   SG: 
     tiles_1_and_2: 0.050
-    tile3: 0.016
+    tile3: 0
   ID: 
     tiles_1_and_2: 0.050
-    tile3: 0.016
+    tile3: 0
   PH: 
     tiles_1_and_2: 0.050
-    tile3: 0.016
+    tile3: 0
   VN: 
     tiles_1_and_2: 0.050
-    tile3: 0.016
+    tile3: 0
   HK: 
     tiles_1_and_2: 0.050
-    tile3: 0.016
+    tile3: 0
   AR: # Latin America stretch countries start here
     tiles_1_and_2: 0.050
-    tile3: 0.016 
+    tile3: 0 
   CL: 
     tiles_1_and_2: 0.050
-    tile3: 0.016
+    tile3: 0
   PE: 
     tiles_1_and_2: 0.050
-    tile3: 0.016
+    tile3: 0
   CO: 
     tiles_1_and_2: 0.050
-    tile3: 0.016
+    tile3: 0
   VE:  
     tiles_1_and_2: 0.050
-    tile3: 0.016
+    tile3: 0
 
 # list of direct allocation time windows
 # each element in the list is a timeframe
@@ -196,14 +199,14 @@ elgibility:
                             (
                 submission_date >= "2021-09-07"
                 AND version > 92
-                AND country IN ("BE","AT","PL","NL","SE","CH")
+                AND country IN ("BE","AT","PL","NL","CH")
               )
               OR
               -- 2025 stretch EU
               (
                 submission_date >= "2021-09-07"
                 AND version > 92
-                AND country IN ("FI","NO","PT","GR","CZ","HU","DK","TR")
+                AND country IN ("FI","NO","PT","GR","CZ","HU","DK","TR","SE","LU")
               )
               OR
               -- 2025 stretch asia/pacific
