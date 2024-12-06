@@ -85,7 +85,7 @@ class MobileAdTilesForecastFlow(FlowSpec):
         self.excluded_advertisers = self.config_data["excluded_advertisers"]
 
         logging.info(f"Forecast month input as: {self.set_forecast_month}")
-        if self.set_forecast_month or self.set_forecast_month == "":
+        if not self.set_forecast_month or self.set_forecast_month == "":
             self.first_day_of_current_month = datetime.today().replace(day=1)
         else:
             self.first_day_of_current_month = datetime.strptime(
