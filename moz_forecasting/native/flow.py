@@ -3,9 +3,9 @@
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
+import logging
 import os
 from datetime import datetime, timedelta
-import logging
 
 import numpy as np
 import pandas as pd
@@ -14,7 +14,7 @@ from darts.models import StatsForecastAutoARIMA
 from darts.timeseries import TimeSeries
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
-from metaflow import FlowSpec, IncludeFile, Parameter, project, step, current
+from metaflow import FlowSpec, IncludeFile, Parameter, current, project, step
 
 GCP_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
 
@@ -388,7 +388,7 @@ class NativeForecastFlow(FlowSpec):
 
     @step
     def get_pocket_impressions(self):
-        """Get ratio of pocket impressions by qualified newtab visits"""
+        """Get ratio of pocket impressions by qualified newtab visits."""
         observed_end_date = self.observed_end_date.strftime("%Y-%m-%d")
         observed_start_date = self.observed_start_date.strftime("%Y-%m-%d")
         countries_string = ",".join(f"'{el}'" for el in self.available_countries)
