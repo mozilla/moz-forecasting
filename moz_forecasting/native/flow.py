@@ -195,7 +195,7 @@ class NativeForecastFlow(FlowSpec):
 
                 SELECT
                         (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
-                        country,
+                        country as country_code,
                         IF(app_name = 'Firefox Desktop', 'desktop', 'mobile')
                             as platform,
                         COALESCE(SUM((dau)), 0) AS total_active,
@@ -227,7 +227,7 @@ class NativeForecastFlow(FlowSpec):
         # for each country fit a separate model
         for country in self.available_countries:
             subset = dau.loc[
-                (dau.country == country)
+                (dau.country_code == country)
                 & (dau.platform == "desktop")
                 & (dau.submission_month <= self.observed_end_date),
                 ["submission_month", "total_active"],
@@ -264,9 +264,9 @@ class NativeForecastFlow(FlowSpec):
                 "num_intervals_to_predict": num_periods_from_end,
             }
             country_pred_df = pred.pd_dataframe().reset_index()
-            country_pred_df["country"] = country
+            country_pred_df["country_code"] = country
             prediction_df_list.append(
-                country_pred_df[["submission_month", "country", "total_active"]]
+                country_pred_df[["submission_month", "country_code", "total_active"]]
             )
 
         #
@@ -304,15 +304,15 @@ class NativeForecastFlow(FlowSpec):
         # average over the observation period to get
         # country-level factors
         self.dau_factors = (
-            dau_observed[["country", "platform"] + new_columns]
-            .groupby(["country", "platform"])
+            dau_observed[["country_code", "platform"] + new_columns]
+            .groupby(["country_code", "platform"])
             .mean()
             .reset_index()
         )
 
         # get forecasted values
         dau_forecast_by_country = pd.merge(
-            dau_forecast, self.dau_factors, how="inner", on=["platform", "country"]
+            dau_forecast, self.dau_factors, how="inner", on=["platform", "country_code"]
         )
 
         # calculate by-country forecast
@@ -336,7 +336,7 @@ class NativeForecastFlow(FlowSpec):
 
         query = f"""SELECT
                         (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
-                        country_code as country,
+                        country_code,
                             COALESCE(SUM(
                             IF(pocket_enabled AND pocket_sponsored_stories_enabled,
                             newtab_visit_count,
@@ -365,7 +365,7 @@ class NativeForecastFlow(FlowSpec):
         self.newtab_visits_by_country_by_month = newtab_visits_by_country_by_month
 
         impressions_with_dau = desktop_dau.merge(
-            newtab_visits_by_country_by_month, on=["submission_month", "country"]
+            newtab_visits_by_country_by_month, on=["submission_month", "country_code"]
         )
         impressions_with_dau["ratio_newtab_visits_with_spocpocket_to_dou"] = (
             impressions_with_dau["newtab_visits_with_spocs"]
@@ -377,11 +377,11 @@ class NativeForecastFlow(FlowSpec):
         self.impressions_to_newtab_with_spocs_factor = (
             impressions_with_dau[
                 [
-                    "country",
+                    "country_code",
                     "ratio_newtab_visits_with_spocpocket_to_dou",
                 ]
             ]
-            .groupby("country", as_index=False)
+            .groupby("country_code", as_index=False)
             .mean()
         )
         self.next(self.get_pocket_impressions)
@@ -395,7 +395,7 @@ class NativeForecastFlow(FlowSpec):
 
         query = f"""SELECT
                         FORMAT_DATE('%Y-%m', submission_date ) AS submission_month,
-                        country_code as country,
+                        country_code,
                         pocket_story_position as position,
                         SUM(pocket_impressions) as pocket_impressions,
                     FROM `{self.pocket_impressions_table}`
@@ -416,7 +416,7 @@ class NativeForecastFlow(FlowSpec):
         )
         spoc_and_newtab_visits = pocket_impressions_by_country_by_month.merge(
             self.newtab_visits_by_country_by_month,
-            on=["submission_month", "country"],
+            on=["submission_month", "country_code"],
         )
         spoc_and_newtab_visits["ratio_pocket_impressions_to_newtab_visits"] = (
             spoc_and_newtab_visits["pocket_impressions"]
@@ -428,12 +428,12 @@ class NativeForecastFlow(FlowSpec):
         self.spocs_to_newtab_visits_factor = (
             spoc_and_newtab_visits[
                 [
-                    "country",
+                    "country_code",
                     "position",
                     "ratio_pocket_impressions_to_newtab_visits",
                 ]
             ]
-            .groupby(["country", "position"], as_index=False)
+            .groupby(["country_code", "position"], as_index=False)
             .mean()
         )
         self.next(self.get_forecast)
@@ -446,9 +446,9 @@ class NativeForecastFlow(FlowSpec):
         ]
         desktop_dau_by_country = desktop_dau_by_country.drop(columns="platform")
         forecast = desktop_dau_by_country.merge(
-            self.impressions_to_newtab_with_spocs_factor, on="country"
+            self.impressions_to_newtab_with_spocs_factor, on="country_code"
         )
-        forecast = forecast.merge(self.spocs_to_newtab_visits_factor, on="country")
+        forecast = forecast.merge(self.spocs_to_newtab_visits_factor, on="country_code")
 
         forecast["forecast_spoc_inventory"] = (
             (
@@ -467,12 +467,15 @@ class NativeForecastFlow(FlowSpec):
         """Write to BQ."""
         write_df = self.forecast[
             [
-                "country",
+                "country_code",
                 "submission_month",
                 "position",
                 "forecast_spoc_inventory",
             ]
         ]
+        # in the mozdata.ads.consolidated_ad_metrics_daily_pt
+        # table position increments from 1, so add one here to match
+        write_df["position"] = write_df["position"] + 1
 
         write_df["device"] = "desktop"
         write_df["forecast_month"] = self.first_day_of_current_month
@@ -481,7 +484,7 @@ class NativeForecastFlow(FlowSpec):
             "forecast_month",
             "forecast_predicted_at",
             "device",
-            "country",
+            "country_code",
             "submission_month",
             "position",
             "forecast_spoc_inventory",
@@ -509,10 +512,10 @@ class NativeForecastFlow(FlowSpec):
             bigquery.SchemaField("forecast_month", "DATE"),
             bigquery.SchemaField("forecast_predicted_at", "TIMESTAMP"),
             bigquery.SchemaField("device", "STRING"),
-            bigquery.SchemaField("country", "STRING"),
+            bigquery.SchemaField("country_code", "STRING"),
             bigquery.SchemaField("submission_month", "DATE"),
             bigquery.SchemaField("position", "INTEGER"),
-            bigquery.SchemaField("forecast_spoc_inventory", "FLOAT"),
+            bigquery.SchemaField("forecast_spoc_inventory", "INTEGER"),
         ]
         job_config = bigquery.LoadJobConfig(
             write_disposition="WRITE_APPEND",
@@ -521,7 +524,6 @@ class NativeForecastFlow(FlowSpec):
         )
 
         client = bigquery.Client(project=GCP_PROJECT_NAME)
-        print(f"writing to: {target_table}")
 
         client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
 
