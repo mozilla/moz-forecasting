@@ -329,11 +329,13 @@ class NativeForecastFlow(FlowSpec):
 
     @step
     def get_newtab_visits(self):
-        """Get ratio of newtab impression to dau."""
+        """Get ratio of qualitified newtab impression to dau."""
         observed_end_date = self.observed_end_date.strftime("%Y-%m-%d")
         observed_start_date = self.observed_start_date.strftime("%Y-%m-%d")
         countries_string = ",".join(f"'{el}'" for el in self.available_countries)
 
+        # newtab impressions are only counted if
+        # pocket_enabled and pocket_sponsored_stories_enabled are True
         query = f"""SELECT
                         (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
                         country_code,
@@ -414,6 +416,8 @@ class NativeForecastFlow(FlowSpec):
         pocket_impressions_by_country_by_month["submission_month"] = pd.to_datetime(
             pocket_impressions_by_country_by_month["submission_month"]
         )
+
+        # join on newtab visits from previous step
         spoc_and_newtab_visits = pocket_impressions_by_country_by_month.merge(
             self.newtab_visits_by_country_by_month,
             on=["submission_month", "country_code"],
