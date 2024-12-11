@@ -1,7 +1,7 @@
 # Native Forecast
 
 ## Overview
-This flow forecasts SPOC (Sponsored POCket) inventory, meaning the maximum possible impressions available to sell and display as sponsored stories.  The maximum number of possible SPOC impressions is the same as the number of **total** pocket impressions (as oppposed to just sponsored) by tile.  To put it another way, if 100% of the inventory was sold the number of SPOC impressions would equal the inventory, but if less than all of the inventory was sold the unsold inventory would be filled with organic stories.  Thus, the inventory will be the total number of pocket impressions.
+This flow forecasts total pocket impressions by position.  Currently, there are a static set of positions on the newtab page that can be used for sponsored pocket stories (SPOCs), specifically (counting from zero) 1,5,7,11,18,20. For these positions, the maximum number of possible SPOC impressions for that position is the same as the number of **total** pocket impressions (as oppposed to just sponsored) by tile.  The sum of total forecasted impressions over just these tiles will be the total SPOC inventory on the newtab page.
 
 The output table is indexed by country, month (`submission_month`), and position with the forecast in the `forecast_spoc_inventory` column
 
