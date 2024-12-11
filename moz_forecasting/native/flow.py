@@ -81,6 +81,7 @@ class NativeForecastFlow(FlowSpec):
             self.test_mode = test_mode_envar
         else:
             self.test_mode = self.test_mode_param
+        self.test_mode = self.test_mode.lower() == "true"
         logging.info(f"test_mode set to: {self.test_mode}")
 
         logging.info(f"Forecast month input as: {self.set_forecast_month}")
