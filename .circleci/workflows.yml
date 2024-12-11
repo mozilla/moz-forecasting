@@ -121,7 +121,7 @@ workflows:
          filters:
            branches:
              only:
-               - native_table_update
+               - main
   update_outerbounds_prod_deployments:
     jobs:
       - update_desktop_tiles_scheduled_job:
