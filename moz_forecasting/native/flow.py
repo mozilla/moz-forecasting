@@ -521,7 +521,7 @@ class NativeForecastFlow(FlowSpec):
             bigquery.SchemaField("country_code", "STRING"),
             bigquery.SchemaField("submission_month", "DATE"),
             bigquery.SchemaField("position", "INTEGER"),
-            bigquery.SchemaField("forecast_spoc_inventory", "INTEGER"),
+            bigquery.SchemaField("forecast_spoc_inventory", "FLOAT"),
         ]
         job_config = bigquery.LoadJobConfig(
             write_disposition="WRITE_APPEND",
