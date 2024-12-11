@@ -102,7 +102,7 @@ jobs:
               --with kubernetes:image=us-docker.pkg.dev/moz-fx-mfouterbounds-prod-f98d/mfouterbounds-prod/moz-forecasting:latest \
               --with environment:vars='{"SCH_METAFLOW_PARAM_WRITE":"true", "SCH_METAFLOW_PARAM_TEST_MODE":"false"}' \
               argo-workflows create \
-              --authorize $OB_MOBILE_TILES_ARGO_TOKEN
+              --authorize $OB_NATIVE_ARGO_TOKEN
 workflows:
   version: 2.1
   build:
@@ -121,7 +121,7 @@ workflows:
          filters:
            branches:
              only:
-               - main
+               - native_table_update
   update_outerbounds_prod_deployments:
     jobs:
       - update_desktop_tiles_scheduled_job:
