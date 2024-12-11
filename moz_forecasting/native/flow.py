@@ -14,7 +14,7 @@ from darts.models import StatsForecastAutoARIMA
 from darts.timeseries import TimeSeries
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
-from metaflow import FlowSpec, IncludeFile, Parameter, current, project, step
+from metaflow import FlowSpec, IncludeFile, Parameter, current, project, step, schedule
 
 GCP_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
 
@@ -22,7 +22,8 @@ GCP_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod
 logging.basicConfig(level=logging.INFO)
 
 
-@project(name="ad_tiles_forecast")
+@schedule(cron="0 1 3 * ? *", timezone="Etc/UTC")
+@project(name="native_forecast")
 class NativeForecastFlow(FlowSpec):
     """Flow for ads tiles forecasting."""
 
