@@ -14,6 +14,9 @@ The idea behind the inventory forecast is to execute the following steps, illust
 - **turn that into country-level newtab visits with sponsored stories by multiplying a factor representing the ratio of visits to the dau by country**: The country-level inventory by month is obtained from the `mozdata.telemetry.newtab_clients_daily` table.  Visits are counted by month and country when the `pocket_sponsored_stories_enabled` and `pocket_enabled` flags are true.  The ratio is calculated by month and rolled up to the country level by averaging over one year.  It is first stored in `self.impressions_to_newtab_with_spocs_factor["ratio_newtab_visits_with_spocpocket_to_dou"]`.
 - **turn this into SPOC inventory by multiplying by a factor representing the number of impressions per newtab visit by position and country**: The by-country, by-position value is obtained from `mozdata.telemetry.newtab_visits`.  Visits are counted by position, month and country when the `pocket_sponsored_stories_enabled` and `pocket_enabled` flags are true. It is averaged over 12 months.  It is stored in `self.spocs_to_newtab_visits_factor["ratio_pocket_impressions_to_newtab_visits"]`
 
+## Scheduled Production Run
+The monthly update it scheduled to run 1 AM UTC on the 3rd of every month. The deployment can be viewed in Outerbounds [here](https://ui.desertowl.obp.outerbounds.com/dashboard/flows/p/revenue/nativeforecast.prod.nativeforecastflow).  The deployment is updated automatically via the circleci job `update_native_scheduled_job` whenever a commit is made into main.
+
 ## History and Changes
 Code was updated to calculate SPOC inventory by position.
 
