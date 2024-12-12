@@ -86,6 +86,23 @@ jobs:
               --with environment:vars='{"SCH_METAFLOW_PARAM_WRITE":"true", "SCH_METAFLOW_PARAM_TEST_MODE":"false"}' \
               argo-workflows create \
               --authorize $OB_MOBILE_TILES_ARGO_TOKEN
+  update_native_scheduled_job:
+    docker:
+      - image: cimg/python:3.10
+    steps:
+      - checkout
+      - uv_setup
+      - ob_setup
+      - run: 
+          name: argo create
+          command: |
+            uv run --no-dev moz_forecasting/native/flow.py \
+              --production \
+              --with retry \
+              --with kubernetes:image=us-docker.pkg.dev/moz-fx-mfouterbounds-prod-f98d/mfouterbounds-prod/moz-forecasting:latest \
+              --with environment:vars='{"SCH_METAFLOW_PARAM_WRITE":"true", "SCH_METAFLOW_PARAM_TEST_MODE":"false"}' \
+              argo-workflows create \
+              --authorize $OB_NATIVE_ARGO_TOKEN
 workflows:
   version: 2.1
   build:
@@ -113,6 +130,11 @@ workflows:
              only:
                - main
       - update_mobile_tiles_scheduled_job:
+         filters:
+           branches:
+             only:
+               - main
+      - update_native_scheduled_job:
          filters:
            branches:
              only:

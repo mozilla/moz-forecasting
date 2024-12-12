@@ -3,6 +3,7 @@
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
+import logging
 import os
 from datetime import datetime, timedelta
 
@@ -13,12 +14,16 @@ from darts.models import StatsForecastAutoARIMA
 from darts.timeseries import TimeSeries
 from dateutil.relativedelta import relativedelta
 from google.cloud import bigquery
-from metaflow import FlowSpec, IncludeFile, Parameter, project, step
+from metaflow import FlowSpec, IncludeFile, Parameter, current, project, schedule, step
 
 GCP_PROJECT_NAME = os.environ.get("GCP_PROJECT_NAME", "moz-fx-mfouterbounds-prod-f98d")
 
+# configure logging
+logging.basicConfig(level=logging.INFO)
 
-@project(name="ad_tiles_forecast")
+
+@schedule(cron="0 1 3 * ? *", timezone="Etc/UTC")
+@project(name="native_forecast")
 class NativeForecastFlow(FlowSpec):
     """Flow for ads tiles forecasting."""
 
@@ -29,8 +34,18 @@ class NativeForecastFlow(FlowSpec):
         default="moz_forecasting/native/config.yaml",
     )
 
-    set_forecast_start_month = Parameter(
-        name="forecast_start_month",
+    test_mode_param = Parameter(
+        name="test_mode",
+        help="indicates whether or not run should affect production",
+        default="true",
+    )
+
+    write_param = Parameter(
+        name="write", help="whether or not to write to BQ", default="false"
+    )
+
+    set_forecast_month = Parameter(
+        name="forecast_month",
         help="indicate historical month to set forecast date to in %Y-%m format",
         default=None,
     )
@@ -48,15 +63,37 @@ class NativeForecastFlow(FlowSpec):
 
         You can use it for collecting/preprocessing data or other setup tasks.
         """
+        # for scheduled flows set write with env var SCH_METAFLOW_PARAM_WRITE
+        write_envar = os.environ.get("SCH_METAFLOW_PARAM_WRITE")
+        if write_envar is not None:
+            self.write = write_envar
+        else:
+            self.write = self.write_param
+        # convert to boolean because parameters are passed as strings
+        self.write = self.write.lower() == "true"
+        logging.info(f"write set to: {self.write}")
+
+        # for scheduled flows set test_mode with env var SCH_METAFLOW_PARAM_TEST_MODE
         # load config
         self.config_data = yaml.safe_load(self.config)
+        test_mode_envar = os.environ.get("SCH_METAFLOW_PARAM_TEST_MODE")
+        if test_mode_envar is not None:
+            self.test_mode = test_mode_envar
+        else:
+            self.test_mode = self.test_mode_param
+        self.test_mode = self.test_mode.lower() == "true"
+        logging.info(f"test_mode set to: {self.test_mode}")
 
-        if not self.set_forecast_start_month:
+        logging.info(f"Forecast month input as: {self.set_forecast_month}")
+        if not self.set_forecast_month or self.set_forecast_month == "":
             self.first_day_of_current_month = datetime.today().replace(day=1)
         else:
             self.first_day_of_current_month = datetime.strptime(
-                self.set_forecast_start_month + "-01", "%Y-%m-%d"
+                self.set_forecast_month + "-01", "%Y-%m-%d"
             )
+
+        # load config
+        self.config_data = yaml.safe_load(self.config)
 
         if not self.set_forecast_end_month:
             self.forecast_date_end = self.first_day_of_current_month + relativedelta(
@@ -84,6 +121,13 @@ class NativeForecastFlow(FlowSpec):
         )
 
         self.newtab_clients_table = "mozdata.telemetry.newtab_clients_daily"
+
+        self.pocket_impressions_table = "mozdata.telemetry.newtab_visits"
+
+        if self.write and not self.test_mode and not current.is_production:
+            # case where trying to write in production  mode
+            # but branch is not production branch
+            raise ValueError("Trying to write in non-production branch")
 
         self.next(self.get_country_availability)
 
@@ -153,7 +197,7 @@ class NativeForecastFlow(FlowSpec):
 
                 SELECT
                         (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
-                        country,
+                        country as country_code,
                         IF(app_name = 'Firefox Desktop', 'desktop', 'mobile')
                             as platform,
                         COALESCE(SUM((dau)), 0) AS total_active,
@@ -185,7 +229,7 @@ class NativeForecastFlow(FlowSpec):
         # for each country fit a separate model
         for country in self.available_countries:
             subset = dau.loc[
-                (dau.country == country)
+                (dau.country_code == country)
                 & (dau.platform == "desktop")
                 & (dau.submission_month <= self.observed_end_date),
                 ["submission_month", "total_active"],
@@ -222,9 +266,9 @@ class NativeForecastFlow(FlowSpec):
                 "num_intervals_to_predict": num_periods_from_end,
             }
             country_pred_df = pred.pd_dataframe().reset_index()
-            country_pred_df["country"] = country
+            country_pred_df["country_code"] = country
             prediction_df_list.append(
-                country_pred_df[["submission_month", "country", "total_active"]]
+                country_pred_df[["submission_month", "country_code", "total_active"]]
             )
 
         #
@@ -262,15 +306,15 @@ class NativeForecastFlow(FlowSpec):
         # average over the observation period to get
         # country-level factors
         self.dau_factors = (
-            dau_observed[["country", "platform"] + new_columns]
-            .groupby(["country", "platform"])
+            dau_observed[["country_code", "platform"] + new_columns]
+            .groupby(["country_code", "platform"])
             .mean()
             .reset_index()
         )
 
         # get forecasted values
         dau_forecast_by_country = pd.merge(
-            dau_forecast, self.dau_factors, how="inner", on=["platform", "country"]
+            dau_forecast, self.dau_factors, how="inner", on=["platform", "country_code"]
         )
 
         # calculate by-country forecast
@@ -283,22 +327,24 @@ class NativeForecastFlow(FlowSpec):
                 * dau_forecast_by_country["dau_forecast"]
             )
         self.dau_forecast_by_country = dau_forecast_by_country
-        self.next(self.get_newtab_impressions)
+        self.next(self.get_newtab_visits)
 
     @step
-    def get_newtab_impressions(self):
-        """Get ratio of newtab impression to dau."""
+    def get_newtab_visits(self):
+        """Get ratio of qualitified newtab impression to dau."""
         observed_end_date = self.observed_end_date.strftime("%Y-%m-%d")
         observed_start_date = self.observed_start_date.strftime("%Y-%m-%d")
         countries_string = ",".join(f"'{el}'" for el in self.available_countries)
 
+        # newtab impressions are only counted if
+        # pocket_enabled and pocket_sponsored_stories_enabled are True
         query = f"""SELECT
                         (FORMAT_DATE('%Y-%m', submission_date )) AS submission_month,
-                        country_code as country,
+                        country_code,
                             COALESCE(SUM(
                             IF(pocket_enabled AND pocket_sponsored_stories_enabled,
                             newtab_visit_count,
-                            0)), 0) AS newtab_impressions_with_spocs,
+                            0)), 0) AS newtab_visits_with_spocs,
                         FROM `{self.newtab_clients_table}`
                         WHERE
                         submission_date >= '{observed_start_date}'
@@ -310,34 +356,90 @@ class NativeForecastFlow(FlowSpec):
 
         client = bigquery.Client(project=GCP_PROJECT_NAME)
         query_job = client.query(query)
-        newtab_impressions_by_country_by_month = query_job.to_dataframe()
+        newtab_visits_by_country_by_month = query_job.to_dataframe()
 
         desktop_dau = self.dau_by_country[
             self.dau_by_country.platform == "desktop"
         ].drop(columns="platform")
 
-        newtab_impressions_by_country_by_month["submission_month"] = pd.to_datetime(
-            newtab_impressions_by_country_by_month["submission_month"]
+        newtab_visits_by_country_by_month["submission_month"] = pd.to_datetime(
+            newtab_visits_by_country_by_month["submission_month"]
         )
 
+        self.newtab_visits_by_country_by_month = newtab_visits_by_country_by_month
+
         impressions_with_dau = desktop_dau.merge(
-            newtab_impressions_by_country_by_month, on=["submission_month", "country"]
+            newtab_visits_by_country_by_month, on=["submission_month", "country_code"]
         )
-        impressions_with_dau["ratio_newtab_impressions_with_spocpocket_to_dou"] = (
-            impressions_with_dau["newtab_impressions_with_spocs"]
+        impressions_with_dau["ratio_newtab_visits_with_spocpocket_to_dou"] = (
+            impressions_with_dau["newtab_visits_with_spocs"]
             / impressions_with_dau["total_active"]
         )
 
         self.impressions_with_dau = impressions_with_dau
 
-        self.impressions_to_spoc = (
+        self.impressions_to_newtab_with_spocs_factor = (
             impressions_with_dau[
                 [
-                    "country",
-                    "ratio_newtab_impressions_with_spocpocket_to_dou",
+                    "country_code",
+                    "ratio_newtab_visits_with_spocpocket_to_dou",
                 ]
             ]
-            .groupby("country", as_index=False)
+            .groupby("country_code", as_index=False)
+            .mean()
+        )
+        self.next(self.get_pocket_impressions)
+
+    @step
+    def get_pocket_impressions(self):
+        """Get ratio of pocket impressions by qualified newtab visits."""
+        observed_end_date = self.observed_end_date.strftime("%Y-%m-%d")
+        observed_start_date = self.observed_start_date.strftime("%Y-%m-%d")
+        countries_string = ",".join(f"'{el}'" for el in self.available_countries)
+
+        query = f"""SELECT
+                        FORMAT_DATE('%Y-%m', submission_date ) AS submission_month,
+                        country_code,
+                        pocket_story_position as position,
+                        SUM(pocket_impressions) as pocket_impressions,
+                    FROM `{self.pocket_impressions_table}`
+                    INNER JOIN UNNEST(pocket_interactions)
+                    WHERE  submission_date >= '{observed_start_date}'
+                        AND submission_date <= '{observed_end_date}'
+                        AND country_code IN ({countries_string})
+                        AND pocket_enabled
+                        AND pocket_sponsored_stories_enabled
+                        AND browser_name='Firefox Desktop'
+                    GROUP BY submission_month, country_code, position"""
+
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
+        query_job = client.query(query)
+        pocket_impressions_by_country_by_month = query_job.to_dataframe()
+        pocket_impressions_by_country_by_month["submission_month"] = pd.to_datetime(
+            pocket_impressions_by_country_by_month["submission_month"]
+        )
+
+        # join on newtab visits from previous step
+        spoc_and_newtab_visits = pocket_impressions_by_country_by_month.merge(
+            self.newtab_visits_by_country_by_month,
+            on=["submission_month", "country_code"],
+        )
+        spoc_and_newtab_visits["ratio_pocket_impressions_to_newtab_visits"] = (
+            spoc_and_newtab_visits["pocket_impressions"]
+            / spoc_and_newtab_visits["newtab_visits_with_spocs"]
+        )
+
+        self.spoc_and_newtab_visits = spoc_and_newtab_visits
+
+        self.spocs_to_newtab_visits_factor = (
+            spoc_and_newtab_visits[
+                [
+                    "country_code",
+                    "position",
+                    "ratio_pocket_impressions_to_newtab_visits",
+                ]
+            ]
+            .groupby(["country_code", "position"], as_index=False)
             .mean()
         )
         self.next(self.get_forecast)
@@ -349,17 +451,19 @@ class NativeForecastFlow(FlowSpec):
             self.dau_forecast_by_country.platform == "desktop"
         ]
         desktop_dau_by_country = desktop_dau_by_country.drop(columns="platform")
-        forecast = desktop_dau_by_country.merge(self.impressions_to_spoc, on="country")
-        forecast["newtab_impressions_with_spocs_enabled"] = (
+        forecast = desktop_dau_by_country.merge(
+            self.impressions_to_newtab_with_spocs_factor, on="country_code"
+        )
+        forecast = forecast.merge(self.spocs_to_newtab_visits_factor, on="country_code")
+
+        forecast["forecast_spoc_inventory"] = (
             (
-                forecast["ratio_newtab_impressions_with_spocpocket_to_dou"]
+                forecast["ratio_newtab_visits_with_spocpocket_to_dou"]
+                * forecast["ratio_pocket_impressions_to_newtab_visits"]
                 * forecast["dau_forecast_native"]
             )
             .round()
             .astype("Int64")
-        )
-        forecast["spoc_inventory_forecast"] = (
-            forecast["newtab_impressions_with_spocs_enabled"] * 6
         )
         self.forecast = forecast
         self.next(self.end)
@@ -369,12 +473,15 @@ class NativeForecastFlow(FlowSpec):
         """Write to BQ."""
         write_df = self.forecast[
             [
-                "country",
+                "country_code",
                 "submission_month",
-                "newtab_impressions_with_spocs_enabled",
-                "spoc_inventory_forecast",
+                "position",
+                "forecast_spoc_inventory",
             ]
         ]
+        # in the mozdata.ads.consolidated_ad_metrics_daily_pt
+        # table position increments from 1, so add one here to match
+        write_df["position"] = write_df["position"] + 1
 
         write_df["device"] = "desktop"
         write_df["forecast_month"] = self.first_day_of_current_month
@@ -382,13 +489,49 @@ class NativeForecastFlow(FlowSpec):
         assert set(write_df.columns) == {
             "forecast_month",
             "forecast_predicted_at",
-            "country",
-            "submission_month",
-            "newtab_impressions_with_spocs_enabled",
-            "spoc_inventory_forecast",
             "device",
+            "country_code",
+            "submission_month",
+            "position",
+            "forecast_spoc_inventory",
         }
         self.write_df = write_df
+
+        if not self.write or "output" not in self.config_data:
+            logging.info("Write parameter is false, exiting now")
+            return
+
+        if self.test_mode:
+            # case where testing locally
+            output_info = self.config_data["output"]["test"]
+        elif current.is_production:
+            output_info = self.config_data["output"]["prod"]
+        else:
+            # case where test_mode is false but current.is_production False
+            raise ValueError("Trying to write in non-production branch")
+        target_table = (
+            f"{output_info['project']}.{output_info['dataset']}.{output_info['table']}"
+        )
+
+        logging.info(f"Writing to: {target_table}")
+        schema = [
+            bigquery.SchemaField("forecast_month", "DATE"),
+            bigquery.SchemaField("forecast_predicted_at", "TIMESTAMP"),
+            bigquery.SchemaField("device", "STRING"),
+            bigquery.SchemaField("country_code", "STRING"),
+            bigquery.SchemaField("submission_month", "DATE"),
+            bigquery.SchemaField("position", "INTEGER"),
+            bigquery.SchemaField("forecast_spoc_inventory", "FLOAT"),
+        ]
+        job_config = bigquery.LoadJobConfig(
+            write_disposition="WRITE_APPEND",
+            create_disposition="CREATE_NEVER",
+            schema=schema,
+        )
+
+        client = bigquery.Client(project=GCP_PROJECT_NAME)
+
+        client.load_table_from_dataframe(write_df, target_table, job_config=job_config)
 
 
 if __name__ == "__main__":

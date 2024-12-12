@@ -26,3 +26,13 @@ countries:
   - ES
   - IT
   - US
+
+output:
+  test:
+    project: moz-fx-data-bq-data-science
+    dataset: jsnyder
+    table: native_monthly_forecast_v1_test
+  prod:
+    project: moz-fx-data-shared-prod
+    dataset: ads_derived
+    table: native_monthly_forecast_v1
