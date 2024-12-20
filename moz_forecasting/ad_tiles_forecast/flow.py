@@ -117,7 +117,7 @@ class AdTilesForecastFlow(FlowSpec):
         name="config",
         is_text=True,
         help="configuration for flow",
-        default="moz_forecasting/ad_tiles_forecast/config_2025_planning_stretch.yaml",
+        default="moz_forecasting/ad_tiles_forecast/config.yaml",
     )
 
     test_mode_param = Parameter(
