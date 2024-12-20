@@ -56,9 +56,6 @@ CPM:
   LU:
     tiles_1_and_2: 0.05
     tile3: 0
-  SE:
-    tiles_1_and_2: 0.05
-    tile3: 0
   CH: 
     tiles_1_and_2: 0.250
     tile3: 0 #switzerland
@@ -139,6 +136,13 @@ elgibility:
                 submission_date >= "2022-01-25"
                 AND version > 92
                 AND country = "JP"
+              )
+              OR
+              -- 2025 baseline expansion countries
+              (
+                submission_date >= "2021-09-07"
+                AND version > 92
+                AND country IN ("BE","AT","PL","NL","CH", "LU","SG")
               )
             ));
 
