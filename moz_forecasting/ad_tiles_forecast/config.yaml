@@ -56,6 +56,9 @@ CPM:
   LU:
     tiles_1_and_2: 0.05
     tile3: 0
+  SG:
+    tiles_1_and_2: 0.05
+    tile3: 0
   CH: 
     tiles_1_and_2: 0.250
     tile3: 0 #switzerland
