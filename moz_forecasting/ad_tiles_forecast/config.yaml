@@ -1,3 +1,4 @@
+# config for montly runs
 # number of months of historical data to average over to get factors
 observed_months: 12
 observed_months_fill_rate: 12
@@ -6,13 +7,13 @@ observed_months_fill_rate: 12
 CPM:
   AU: 
     tiles_1_and_2: 0.099
-    tile3: .077
+    tile3: 0
   BR: 
     tiles_1_and_2: 0.066
-    tile3: 0.019
+    tile3: 0
   CA: 
     tiles_1_and_2: 0.330
-    tile3: 0.299
+    tile3: 0
   DE: 
     tiles_1_and_2: 0.528
     tile3: 0.187
@@ -32,14 +33,35 @@ CPM:
     tiles_1_and_2: 0.363
     tile3: 0.132
   JP:
-    tiles_1_and_2: 0.022
-    tile3: 0.0072
+    tiles_1_and_2: 0.06
+    tile3: 0
   MX:
     tiles_1_and_2: 0.209
-    tile3: 0.0649
+    tile3: 0
   US: 
     tiles_1_and_2: 0.627
     tile3: 0.220
+  BE: 
+    tiles_1_and_2: 0.150
+    tile3: 0
+  AT:
+    tiles_1_and_2: 0.17
+    tile3: 0
+  PL:
+    tiles_1_and_2: 0.050
+    tile3: 0
+  NL:
+    tiles_1_and_2: 0.22
+    tile3: 0
+  LU:
+    tiles_1_and_2: 0.05
+    tile3: 0
+  SG:
+    tiles_1_and_2: 0.05
+    tile3: 0
+  CH: 
+    tiles_1_and_2: 0.250
+    tile3: 0 #switzerland
 
 # list of direct allocation time windows
 # each element in the list is a timeframe
@@ -58,7 +80,7 @@ direct_allocations:
       IT: 1.00
       ES: 1.00
     allocation: .05
-    start_month: 2025-02
+    start_month: 2025-01
     positions:
       - 3
 
@@ -117,6 +139,13 @@ elgibility:
                 submission_date >= "2022-01-25"
                 AND version > 92
                 AND country = "JP"
+              )
+              OR
+              -- 2025 baseline expansion countries
+              (
+                submission_date >= "2021-09-07"
+                AND version > 92
+                AND country IN ("BE","AT","PL","NL","CH", "LU","SG")
               )
             ));
 
