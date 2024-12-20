@@ -155,6 +155,7 @@ class AdTilesForecastFlow(FlowSpec):
 
         # for scheduled flows set test_mode with env var SCH_METAFLOW_PARAM_TEST_MODE
         # load config
+        logging.info(f"Using config file: {self.config}")
         self.config_data = yaml.safe_load(self.config)
         test_mode_envar = os.environ.get("SCH_METAFLOW_PARAM_TEST_MODE")
         if test_mode_envar is not None:
